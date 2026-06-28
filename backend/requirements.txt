@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+pyserial
+# Para mas adelante (camara / LIDAR):
+# opencv-python
+# rplidar-roboticia

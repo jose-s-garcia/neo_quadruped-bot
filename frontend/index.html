@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>KANGAL · Centro de Comando</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.1/dist/nipplejs.min.js"></script>
+</head>
+<body>
+<div class="grid-bg"></div>
+
+<!-- BARRA SUPERIOR -->
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">◣◢</span>
+    <span class="brand-name">KANGAL</span>
+    <span class="brand-sub">centro de comando</span>
+  </div>
+  <div class="status">
+    <span class="chip" id="connChip"><i class="dot"></i> <span id="connText">conectando…</span></span>
+    <span class="chip" id="modeChip">MODO · <b id="modeText">—</b></span>
+    <span class="chip"><i class="ic">⚡</i> <span id="battText">8.4V</span></span>
+  </div>
+</header>
+
+<!-- LAYOUT PRINCIPAL -->
+<div class="layout">
+
+  <!-- SIDEBAR: niveles educativos -->
+  <nav class="sidebar">
+    <div class="nav-group">
+      <div class="nav-title">control</div>
+      <button class="nav-item active" data-view="dashboard">⬡ Dashboard</button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">inicial</div>
+      <button class="nav-item" data-view="inicial-drive">⊳ Maneja al robot</button>
+      <button class="nav-item" data-view="inicial-blocks">⊞ Bloques</button>
+      <button class="nav-item" data-view="inicial-tricks">★ Trucos</button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">secundaria</div>
+      <button class="nav-item" data-view="sec-blocks">⊞ Bloques + sensores</button>
+      <button class="nav-item" data-view="sec-lidar">◎ Radar LIDAR</button>
+      <button class="nav-item" data-view="sec-ik">∡ Geometría IK</button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">superior</div>
+      <button class="nav-item" data-view="sup-vision">⊡ Visión</button>
+      <button class="nav-item" data-view="sup-slam">⊕ SLAM</button>
+      <button class="nav-item" data-view="sup-api">{ } API</button>
+    </div>
+  </nav>
+
+  <!-- AREA DE CONTENIDO (se renderiza el modulo activo) -->
+  <main class="content" id="view"></main>
+
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

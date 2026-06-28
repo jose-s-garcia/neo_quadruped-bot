@@ -1,0 +1,140 @@
+/* ===========================================================================
+   KANGAL · Centro de Comando — tema futurista minimalista
+   =========================================================================== */
+:root{
+  --bg:#070b12;
+  --panel:#0e1622;
+  --panel-2:#0b1019;
+  --line:rgba(45,212,238,.14);
+  --line-strong:rgba(45,212,238,.4);
+  --accent:#2dd4ee;          /* cyan */
+  --accent-2:#a78bfa;        /* violeta */
+  --ok:#34d399;
+  --warn:#f87171;
+  --text:#dbe7f3;
+  --muted:#5b7088;
+  --glow:0 0 24px rgba(45,212,238,.18);
+  --mono:"SF Mono",ui-monospace,"Cascadia Code",Consolas,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--text);overflow:hidden;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+}
+/* rejilla de fondo tenue */
+.grid-bg{
+  position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+  background-image:
+    linear-gradient(var(--line) 1px,transparent 1px),
+    linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:42px 42px;
+  mask-image:radial-gradient(circle at 50% 30%,#000 0%,transparent 80%);
+}
+
+/* ---------- barra superior ---------- */
+.topbar{
+  position:relative;z-index:2;height:62px;display:flex;align-items:center;
+  justify-content:space-between;padding:0 22px;
+  border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(14,22,34,.9),rgba(7,11,18,.6));
+  backdrop-filter:blur(8px);
+}
+.brand{display:flex;align-items:baseline;gap:10px}
+.logo{color:var(--accent);font-size:20px;text-shadow:var(--glow);letter-spacing:-2px}
+.brand-name{font-weight:800;letter-spacing:4px;font-size:18px}
+.brand-sub{color:var(--muted);font-size:11px;letter-spacing:2px;text-transform:uppercase}
+.status{display:flex;gap:10px;align-items:center}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
+  border:1px solid var(--line);border-radius:999px;padding:6px 12px;
+  background:var(--panel-2);font-family:var(--mono);
+}
+.chip b{color:var(--text)}
+.chip .ic{font-style:normal}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--warn);box-shadow:0 0 10px var(--warn)}
+.chip.live .dot{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+
+/* ---------- layout ---------- */
+.layout{position:relative;z-index:1;display:grid;grid-template-columns:230px 1fr;height:calc(100vh - 62px)}
+.sidebar{
+  border-right:1px solid var(--line);padding:18px 12px;overflow-y:auto;
+  background:linear-gradient(180deg,rgba(11,16,25,.6),transparent);
+}
+.nav-group{margin-bottom:20px}
+.nav-title{
+  font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--muted);
+  padding:0 10px 8px;
+}
+.nav-item{
+  width:100%;text-align:left;display:block;margin:3px 0;padding:10px 12px;
+  background:transparent;border:1px solid transparent;border-radius:10px;
+  color:var(--text);font-size:13.5px;cursor:pointer;transition:.15s;
+}
+.nav-item:hover{background:var(--panel);border-color:var(--line)}
+.nav-item.active{
+  background:linear-gradient(90deg,rgba(45,212,238,.14),transparent);
+  border-color:var(--line-strong);color:var(--accent);
+  box-shadow:inset 2px 0 0 var(--accent)
+}
+
+/* ---------- contenido / paneles ---------- */
+.content{padding:24px;overflow-y:auto}
+.view-head{margin-bottom:18px}
+.view-head h1{margin:0;font-size:22px;font-weight:700;letter-spacing:.5px}
+.view-head p{margin:4px 0 0;color:var(--muted);font-size:13px}
+
+.panels{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.panel{
+  background:linear-gradient(180deg,var(--panel),var(--panel-2));
+  border:1px solid var(--line);border-radius:16px;padding:18px;position:relative;
+  overflow:hidden;
+}
+.panel::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--line-strong),transparent)}
+.panel h3{margin:0 0 14px;font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
+.panel.tall{grid-row:span 2}
+
+/* botones de comando */
+.btn{
+  border:1px solid var(--line-strong);border-radius:11px;padding:13px 16px;font-size:14px;
+  font-weight:600;color:var(--text);background:var(--panel-2);cursor:pointer;
+  transition:.15s;font-family:inherit;
+}
+.btn:hover{border-color:var(--accent);box-shadow:var(--glow);color:var(--accent)}
+.btn:active{transform:translateY(1px)}
+.btn.accent{background:linear-gradient(180deg,rgba(45,212,238,.18),rgba(45,212,238,.05));border-color:var(--accent);color:var(--accent)}
+.btn.warn{border-color:var(--warn);color:var(--warn)}
+.btn.warn:hover{box-shadow:0 0 24px rgba(248,113,113,.25)}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap}
+
+/* pad direccional */
+.dpad{display:grid;grid-template-columns:repeat(3,64px);grid-template-rows:repeat(3,64px);gap:8px;justify-content:center}
+.dpad .btn{padding:0;display:flex;align-items:center;justify-content:center;font-size:20px}
+.dpad .empty{visibility:hidden}
+
+/* joystick */
+#joyzone{position:relative;width:220px;height:220px;margin:0 auto;
+  background:radial-gradient(circle,var(--panel-2),transparent 70%);
+  border:1px solid var(--line);border-radius:50%}
+
+/* telemetria */
+.metric{display:flex;justify-content:space-between;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--line)}
+.metric:last-child{border-bottom:0}
+.metric .k{color:var(--muted);font-size:12px;letter-spacing:1px;text-transform:uppercase}
+.metric .v{font-family:var(--mono);font-size:16px;color:var(--accent)}
+
+.placeholder{
+  border:1px dashed var(--line-strong);border-radius:14px;padding:30px;text-align:center;
+  color:var(--muted);font-size:13px;background:var(--panel-2)
+}
+.placeholder b{color:var(--text);display:block;margin-bottom:6px;font-size:15px}
+.tag{display:inline-block;font-size:10px;letter-spacing:1px;text-transform:uppercase;
+  color:var(--accent-2);border:1px solid rgba(167,139,250,.3);border-radius:6px;padding:2px 7px;margin-top:10px}
+
+@media(max-width:760px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{position:fixed;left:-240px;top:62px;bottom:0;width:230px;transition:.2s;z-index:5;background:var(--bg)}
+  .sidebar.open{left:0}
+  .brand-sub{display:none}
+}
