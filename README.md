@@ -1,6 +1,6 @@
-# KANGAL · Centro de Comando
+# NEO - CUADRÚPEDO EDUCATIVO · Centro de Comando
 
-Dashboard web para controlar el robot cuadrúpedo Kangal, como **herramienta educativa**
+Dashboard web para controlar el robot cuadrúpedo NEO, como **herramienta educativa**
 para tres niveles: **Inicial**, **Secundaria** y **Superior**.
 
 Corre en el **Jetson Orin Nano**; los comandos viajan por **serial (USB) al ESP32**.
@@ -15,7 +15,7 @@ Corre en el **Jetson Orin Nano**; los comandos viajan por **serial (USB) al ESP3
 ## Estructura
 
 ```
-kangal_dashboard/
+NEO_dashboard/
 ├── backend/
 │   ├── main.py          # FastAPI: rutas /api/*, WebSocket /ws/telemetry
 │   ├── robot.py         # Puente serial al ESP32 (clase Robot)
