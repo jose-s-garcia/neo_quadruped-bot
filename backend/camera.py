@@ -16,9 +16,10 @@ import time
 try:
     import cv2
     _HAS_CV2 = True
-except ImportError:
+except Exception as e:
+    # ImportError (sin cv2, ej. en la PC) o AttributeError (cv2 vs NumPy 2.x en el Jetson)
     _HAS_CV2 = False
-    print("[camera] OpenCV (cv2) no disponible -> camara desactivada (ok en la PC)")
+    print(f"[camera] OpenCV (cv2) no disponible -> camara desactivada ({type(e).__name__})")
 
 
 def gst_pipeline(sensor_id=0, width=1280, height=720, fps=30, flip=0):

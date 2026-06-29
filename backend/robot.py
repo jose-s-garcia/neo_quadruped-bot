@@ -2,7 +2,7 @@
 robot.py - Puente serial al ESP32 del robot NEO.
 Encapsula el envio de comandos (las mismas teclas que el firmware ya entiende).
 """
-import sys
+import os
 import threading
 import time
 
@@ -86,6 +86,8 @@ class Robot:
         self._send(key)
 
 
-# instancia global (el puerto se puede pasar por argumento)
-PORT = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyUSB0"
+# instancia global. El puerto se toma de la variable de entorno ROBOT_PORT
+# (no de sys.argv, porque bajo uvicorn argv son los argumentos de uvicorn).
+#   ROBOT_PORT=/dev/ttyACM0 python -m uvicorn main:app --host 0.0.0.0 --port 8000
+PORT = os.environ.get("ROBOT_PORT", "/dev/ttyUSB0")
 robot = Robot(port=PORT)
