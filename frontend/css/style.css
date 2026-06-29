@@ -136,6 +136,43 @@ body{
 .cam img{width:100%;display:block;border-radius:12px;background:#000;
   aspect-ratio:16/9;object-fit:cover;border:1px solid var(--line)}
 
+/* ---------- modulo de bloques ---------- */
+.blocks-layout{display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start}
+.blockly{height:480px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.blocks-side .panel{position:sticky;top:8px}
+.neo-avatar{display:flex;flex-direction:column;align-items:center;gap:14px;padding:6px 0}
+.neo-status{font-family:var(--mono);font-size:13px;color:var(--accent);text-align:center;min-height:18px}
+@media(max-width:900px){.blocks-layout{grid-template-columns:1fr}.blockly{height:60vh}}
+
+/* avatar NEO (perro robot reactivo) */
+.neo-dog{width:100%;max-width:230px}
+.dog-svg{width:100%;height:auto;overflow:visible}
+.dog-svg .body,.dog-svg .head{fill:#0e1622;stroke:var(--accent);stroke-width:2.5}
+.dog-svg .eye{fill:var(--accent);filter:drop-shadow(0 0 5px var(--accent))}
+.dog-svg .leg,.dog-svg .tail,.dog-svg .ear{stroke:var(--accent);stroke-width:3.5;stroke-linecap:round;fill:none}
+.dog-svg .ear-tip{fill:var(--accent)}
+.dog-svg .ground{stroke:var(--line);stroke-width:2;stroke-dasharray:3 7}
+.dog-svg .leg{transform-box:fill-box;transform-origin:top center}
+.neo-dog[class*="act-"]{transition:transform .35s ease}
+.neo-dog.idle{animation:neo-breathe 3.2s ease-in-out infinite}
+@keyframes neo-breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.neo-dog.idle .eye{animation:neo-blink 4s ease-in-out infinite}
+@keyframes neo-blink{0%,92%,100%{opacity:1}96%{opacity:.2}}
+.neo-dog[class*="act-"] .leg{animation:neo-step .28s ease-in-out infinite alternate}
+.neo-dog[class*="act-"] .leg.rf,.neo-dog[class*="act-"] .leg.rr{animation-delay:.14s}
+@keyframes neo-step{from{transform:rotate(-12deg)}to{transform:rotate(12deg)}}
+.neo-dog[class*="act-"] .eye{filter:drop-shadow(0 0 10px var(--accent))}
+.neo-dog.act-adelante{transform:translateX(16px) rotate(-3deg)}
+.neo-dog.act-atras{transform:translateX(-16px) rotate(3deg)}
+.neo-dog.act-izquierda{transform:translateX(-12px)}
+.neo-dog.act-derecha{transform:translateX(12px)}
+.neo-dog.act-turn-izquierda{transform:rotate(-13deg)}
+.neo-dog.act-turn-derecha{transform:rotate(13deg)}
+.neo-dog.act-stand{transform:translateY(-8px)}
+.neo-dog.act-saludar{transform:rotate(-4deg)}
+.neo-dog.act-asentir{transform:rotate(3deg)}
+.neo-dog.act-agacharse{transform:translateY(8px)}
+
 @media(max-width:760px){
   .layout{grid-template-columns:1fr}
   .sidebar{position:fixed;left:-240px;top:62px;bottom:0;width:230px;transition:.2s;z-index:5;background:var(--bg)}
