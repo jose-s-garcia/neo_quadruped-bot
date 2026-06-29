@@ -1,5 +1,5 @@
 """
-robot.py - Puente serial al ESP32 del robot Kangal.
+robot.py - Puente serial al ESP32 del robot NEO.
 Encapsula el envio de comandos (las mismas teclas que el firmware ya entiende).
 """
 import sys

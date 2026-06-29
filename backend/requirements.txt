@@ -1,6 +1,10 @@
 fastapi
 uvicorn[standard]
 pyserial
-# Para mas adelante (camara / LIDAR):
-# opencv-python
+
+# Camara: en el Jetson, OpenCV (cv2) YA viene con JetPack y CON soporte GStreamer.
+# NO instales opencv-python por pip en el Jetson: trae un build SIN GStreamer y
+# rompe el pipeline de la camara. En la PC (sin camara) no hace falta cv2.
+
+# Para mas adelante (LIDAR):
 # rplidar-roboticia

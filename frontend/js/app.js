@@ -60,6 +60,14 @@ const dpad = `
 const placeholder = (title, desc, tag) =>
   `<div class="placeholder"><b>${title}</b>${desc}<div class="tag">${tag}</div></div>`;
 
+// stream de camara en vivo (MJPEG) con fallback si no hay senal
+const cameraView = `
+  <div class="cam">
+    <img src="/api/camera" alt="camara en vivo"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+    <div style="display:none">${placeholder("Cámara sin señal", "Inicia el server en el Jetson con la cámara conectada.", "IMX477")}</div>
+  </div>`;
+
 /* ---------------- vistas / modulos ---------------- */
 const views = {
   dashboard: () => head("Dashboard", "Control y telemetria en tiempo real") + `
@@ -73,12 +81,12 @@ const views = {
         <div class="metric"><span class="k">Pitch</span><span class="v" id="m-pitch">—</span></div>
         <div class="metric"><span class="k">Roll</span><span class="v" id="m-roll">—</span></div>
       </div>
-      <div class="panel"><h3>Cámara</h3>${placeholder("Stream IMX477", "Video en vivo del robot.", "pendiente: driver Arducam")}</div>
+      <div class="panel"><h3>Cámara</h3>${cameraView}</div>
     </div>`,
 
   "inicial-drive": () => head("Maneja al robot", "Conduce y observa lo que ve") + `
     <div class="panels"><div class="panel tall"><h3>Conducir</h3>${controlBar}${dpad}<div id="joyzone" style="display:none"></div></div>
-      <div class="panel"><h3>Cámara</h3>${placeholder("¿Qué ve el robot?", "Vista en vivo.", "cámara")}</div></div>`,
+      <div class="panel"><h3>Cámara</h3>${cameraView}</div></div>`,
   "inicial-blocks": () => head("Bloques", "Programa al robot arrastrando bloques") +
     placeholder("Editor de bloques (Blockly)", "Adelante, girar, esperar, repetir → el robot ejecuta. Introduce secuencias y algoritmos de forma visual.", "Blockly · por construir"),
   "inicial-tricks": () => head("Trucos", "Animaciones divertidas") + `

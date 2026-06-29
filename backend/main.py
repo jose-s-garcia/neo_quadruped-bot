@@ -1,5 +1,5 @@
 """
-main.py - Servidor FastAPI del dashboard del robot Kangal.
+main.py - Servidor FastAPI del dashboard del robot NEO.
 
 Correr en el Jetson:
     pip install -r requirements.txt
@@ -12,13 +12,14 @@ import json
 import os
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from robot import robot
+from camera import camera
 
-app = FastAPI(title="Kangal Robot API", version="0.1.0",
-              description="API de control del robot cuadrupedo Kangal (educativo).")
+app = FastAPI(title="NEO Robot API", version="0.1.0",
+              description="API de control del robot cuadrupedo NEO (educativo).")
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 
@@ -87,9 +88,23 @@ async def ws_telemetry(ws: WebSocket):
 
 
 # ===========================================================================
-# Placeholders para sensores (se implementan despues)
+# Camara (stream MJPEG de la IMX477)
 # ===========================================================================
-# @app.get("/api/camera")        -> stream MJPEG de la IMX477
+@app.get("/api/camera", tags=["sensores"])
+def api_camera():
+    """Stream MJPEG de la camara. Si no hay camara, responde 503."""
+    if not camera.available:
+        return JSONResponse({"error": "camara no disponible"}, status_code=503)
+    return StreamingResponse(camera.mjpeg_frames(),
+                             media_type="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.get("/api/camera/status", tags=["sensores"])
+def api_camera_status():
+    return {"available": camera.available}
+
+
+# Pendiente:
 # @app.websocket("/ws/lidar")    -> puntos del RPLIDAR C1 en vivo
 
 
