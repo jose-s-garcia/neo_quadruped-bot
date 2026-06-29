@@ -1,4 +1,4 @@
-# NEO · Centro de Comando
+# NEO - CUADRÚPEDO EDUCATIVO · Centro de Comando
 
 Dashboard web para controlar el robot cuadrúpedo NEO, como **herramienta educativa**
 para tres niveles: **Inicial**, **Secundaria** y **Superior**.
@@ -15,7 +15,7 @@ Corre en el **Jetson Orin Nano**; los comandos viajan por **serial (USB) al ESP3
 ## Estructura
 
 ```
-neo_quadruped-bot/
+NEO_dashboard/
 ├── backend/
 │   ├── main.py          # FastAPI: rutas /api/*, WebSocket /ws/telemetry
 │   ├── robot.py         # Puente serial al ESP32 (clase Robot)
