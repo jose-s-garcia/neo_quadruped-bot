@@ -75,21 +75,31 @@ const TOOLBOX = {
   ],
 };
 
-function neoTheme() {
-  return Blockly.Theme.defineTheme("neo", {
-    base: Blockly.Themes.Classic,
-    componentStyles: {
-      workspaceBackgroundColour: "#0b1019",
-      toolboxBackgroundColour: "#0e1622",
-      toolboxForegroundColour: "#dbe7f3",
-      flyoutBackgroundColour: "#0d1420",
-      flyoutForegroundColour: "#dbe7f3",
-      scrollbarColour: "#22d3ee",
-      insertionMarkerColour: "#22d3ee",
-      cursorColour: "#22d3ee",
-    },
+const _themes = {};
+function getTheme(light) {
+  const key = light ? "neoLight" : "neoDark";
+  if (_themes[key]) return _themes[key];
+  const c = light ? {
+    workspaceBackgroundColour: "#f1f5fa", toolboxBackgroundColour: "#ffffff",
+    toolboxForegroundColour: "#0f1b2a", flyoutBackgroundColour: "#eef2f8",
+    flyoutForegroundColour: "#0f1b2a", scrollbarColour: "#0891b2",
+    insertionMarkerColour: "#0891b2", cursorColour: "#0891b2",
+  } : {
+    workspaceBackgroundColour: "#0b1019", toolboxBackgroundColour: "#0e1622",
+    toolboxForegroundColour: "#dbe7f3", flyoutBackgroundColour: "#0d1420",
+    flyoutForegroundColour: "#dbe7f3", scrollbarColour: "#22d3ee",
+    insertionMarkerColour: "#22d3ee", cursorColour: "#22d3ee",
+  };
+  _themes[key] = Blockly.Theme.defineTheme(key, {
+    base: Blockly.Themes.Classic, componentStyles: c,
     fontStyle: { family: "system-ui, sans-serif", size: 12 },
   });
+  return _themes[key];
+}
+
+// llamado desde app.js al cambiar el tema (actualiza el workspace en vivo)
+export function setBlocklyTheme(light) {
+  if (workspace) workspace.setTheme(getTheme(light));
 }
 
 /* ====================== avatar + estado ====================== */
@@ -167,7 +177,7 @@ export function initBlocks() {
   if (workspace) { try { workspace.dispose(); } catch {} workspace = null; }
   workspace = Blockly.inject(document.getElementById("blocklyDiv"), {
     toolbox: TOOLBOX,
-    theme: neoTheme(),
+    theme: getTheme(document.body.classList.contains("light")),
     renderer: "zelos",
     grid: { spacing: 26, length: 2, colour: "#16202e", snap: true },
     zoom: { controls: true, wheel: true, startScale: 0.95 },

@@ -1,6 +1,6 @@
 // app.js - navegacion, telemetria y render de modulos
 import { api, connectTelemetry } from "./api.js";
-import { initBlocks } from "./blocks.js";
+import { initBlocks, setBlocklyTheme } from "./blocks.js";
 
 /* ---------------- helpers de control reutilizables ---------------- */
 function holdButton(el, dir) {
@@ -192,5 +192,19 @@ connectTelemetry((st) => {
   set("m-pitch", st.pitch);
   set("m-roll", st.roll);
 });
+
+/* ---------------- tema claro / oscuro ---------------- */
+function applyTheme(theme) {
+  const light = theme === "light";
+  document.body.classList.toggle("light", light);
+  const t = document.getElementById("themeToggle");
+  if (t) t.textContent = light ? "☀️" : "🌙";
+  localStorage.setItem("neo-theme", theme);
+  setBlocklyTheme(light);
+}
+const themeBtn = document.getElementById("themeToggle");
+if (themeBtn) themeBtn.onclick = () =>
+  applyTheme(document.body.classList.contains("light") ? "dark" : "light");
+applyTheme(localStorage.getItem("neo-theme") || "dark");  // recuerda la preferencia
 
 render("dashboard");

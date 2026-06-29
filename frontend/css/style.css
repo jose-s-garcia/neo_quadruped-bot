@@ -16,11 +16,39 @@
   --glow:0 0 24px rgba(45,212,238,.18);
   --mono:"SF Mono",ui-monospace,"Cascadia Code",Consolas,monospace;
 }
+
+/* ---------- modo claro ---------- */
+body.light{
+  --bg:#eef2f8;
+  --panel:#ffffff;
+  --panel-2:#f1f5fa;
+  --line:rgba(8,145,178,.18);
+  --line-strong:rgba(8,145,178,.42);
+  --accent:#0891b2;
+  --accent-2:#7c3aed;
+  --ok:#059669;
+  --warn:#dc2626;
+  --text:#0f1b2a;
+  --muted:#5b6b80;
+  --glow:0 0 18px rgba(8,145,178,.16);
+}
+body.light .topbar{background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(238,242,248,.6))}
+body.light .sidebar{background:linear-gradient(180deg,rgba(241,245,250,.7),transparent)}
+body.light .grid-bg{opacity:.6}
+
+/* toggle de tema */
+.theme-toggle{
+  background:var(--panel-2);border:1px solid var(--line);border-radius:999px;
+  width:36px;height:36px;font-size:15px;cursor:pointer;color:var(--text);
+  display:flex;align-items:center;justify-content:center;padding:0;line-height:1;transition:.15s;
+}
+.theme-toggle:hover{border-color:var(--accent);box-shadow:var(--glow)}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
 body{
   margin:0;background:var(--bg);color:var(--text);overflow:hidden;
   font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  transition:background .25s, color .25s;
 }
 /* rejilla de fondo tenue */
 .grid-bg{
@@ -147,7 +175,7 @@ body{
 /* avatar NEO (perro robot reactivo) */
 .neo-dog{width:100%;max-width:230px}
 .dog-svg{width:100%;height:auto;overflow:visible}
-.dog-svg .body,.dog-svg .head{fill:#0e1622;stroke:var(--accent);stroke-width:2.5}
+.dog-svg .body,.dog-svg .head{fill:var(--panel);stroke:var(--accent);stroke-width:2.5}
 .dog-svg .eye{fill:var(--accent);filter:drop-shadow(0 0 5px var(--accent))}
 .dog-svg .leg,.dog-svg .tail,.dog-svg .ear{stroke:var(--accent);stroke-width:3.5;stroke-linecap:round;fill:none}
 .dog-svg .ear-tip{fill:var(--accent)}
