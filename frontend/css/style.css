@@ -164,7 +164,43 @@ body{
 .cam img{width:100%;display:block;border-radius:12px;background:#000;
   aspect-ratio:16/9;object-fit:cover;border:1px solid var(--line)}
 
+/* ---------- pagina de inicio (todos los modulos por nivel) ---------- */
+.home-hero{display:flex;align-items:center;gap:16px;margin-bottom:26px}
+.home-hero .hh-logo{font-size:40px;color:var(--accent);text-shadow:var(--glow);letter-spacing:-3px}
+.home-level{margin-bottom:28px}
+.home-level-title{
+  display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:3px;
+  text-transform:uppercase;color:var(--muted);margin-bottom:12px;
+}
+.home-level-title::after{content:"";flex:1;height:1px;background:var(--line)}
+.home-level-title .lv-dot{width:10px;height:10px;border-radius:3px;box-shadow:0 0 10px currentColor}
+.home-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(235px,1fr))}
+.home-card{
+  background:linear-gradient(180deg,var(--panel),var(--panel-2));
+  border:1px solid var(--line);border-radius:16px;padding:20px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:flex-start;gap:9px;text-align:left;
+  color:var(--text);font-family:inherit;transition:.18s;position:relative;overflow:hidden;
+}
+.home-card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;
+  background:var(--lv);opacity:.55;transition:.18s}
+.home-card:hover{transform:translateY(-3px);border-color:var(--lv);
+  box-shadow:0 10px 26px rgba(0,0,0,.35)}
+.home-card:hover::before{opacity:1}
+.home-card .hc-icon{font-size:38px;line-height:1}
+.home-card b{font-size:16px;letter-spacing:.3px}
+.home-card p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.55}
+
 /* ---------- modulo de bloques ---------- */
+.blocks-hero{
+  display:flex;gap:14px;align-items:center;margin-bottom:14px;padding:16px 20px;
+  border-radius:16px;border:1px solid rgba(167,139,250,.35);
+  background:linear-gradient(100deg,rgba(167,139,250,.16),rgba(45,212,238,.10));
+}
+.blocks-hero .bh-ico{font-size:36px}
+.blocks-hero b{font-size:16px}
+.blocks-hero p{margin:3px 0 0;font-size:12.5px;color:var(--muted);line-height:1.5}
+.btn.big{padding:15px 26px;font-size:16px;border-radius:13px}
+
 .blocks-layout{display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start}
 .blockly{height:480px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
 .blocks-side .panel{position:sticky;top:8px}

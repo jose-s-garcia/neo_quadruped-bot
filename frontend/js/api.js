@@ -10,10 +10,14 @@ export const api = {
   stop:   ()        => post("/api/stop"),
   raw:    (key)     => post(`/api/raw/${encodeURIComponent(key)}`),
   stabilize: ()     => post("/api/camera/stabilize"),
+  flip: ()          => post("/api/camera/flip"),
+  snapshot: ()      => post("/api/camera/snapshot"),
   lidarCapture: ()  => post("/api/lidar/capture"),
   lidarStatus: ()   => fetch("/api/lidar/status").then(r => r.json()).catch(() => ({})),
-  vision: (layer)   => post(`/api/vision/${layer}`),          // layer: "color" | "person"
+  vision: (layer)   => post(`/api/vision/${layer}`),          // layer: "color" | "objects"
+  visionFilter: (f) => post(`/api/vision/filter/${f}`),
   visionStatus: ()  => fetch("/api/vision/status").then(r => r.json()).catch(() => ({})),
+  probe: (x, y)     => fetch(`/api/vision/probe?x=${x}&y=${y}`).then(r => r.json()).catch(() => ({ ok: false })),
   state:  ()        => fetch("/api/state").then(r => r.json()).catch(() => ({})),
 };
 

@@ -119,48 +119,149 @@ class Stabilizer:
 
 
 class Vision:
-    """Vision por computador sobre el frame (solo OpenCV, sin modelos externos).
+    """Vision por computador sobre el frame.
 
-    Dos capacidades, encendibles por separado:
-      - COLORES: umbraliza en espacio HSV (mas estable que RGB ante cambios de luz),
-        agrupa por contornos y marca cada mancha con su color y tamano.
-      - PERSONAS: detector de peatones HOG + SVM que ya trae OpenCV (cuerpo completo,
-        no rostros). Es pesado, asi que corre cada pocos frames sobre una version
-        reducida y reutiliza las cajas (cache) para no bajar los FPS.
+    Capas (encendibles por separado):
+      - COLORES: umbraliza en HSV. Rangos afinados: minimos de saturacion/valor mas
+        altos para que los grises/blancos NO se cuelen como "azul" (el sesgo tipico
+        del auto-white-balance).
+      - OBJETOS (IA): red neuronal YOLOv4-tiny (COCO, 80 clases) via cv2.dnn.
+        Detecta VARIAS cosas a la vez (persona + telefono + botella...). Si los
+        archivos del modelo no estan en backend/models/, cae a HOG (solo personas).
+      - FILTROS de laboratorio (nivel superior): bordes (Canny), contornos, gris,
+        termica (mapa de color) y movimiento (resta de cuadros).
     """
     # Rangos HSV (OpenCV: H 0-179, S 0-255, V 0-255). El rojo cruza el 0 -> 2 rangos.
+    # S minimo alto (>=100) = solo colores VIVOS; evita que lo gris se lea "azul".
     COLORS = {
-        "rojo":     [((0, 120, 80), (10, 255, 255)), ((170, 120, 80), (179, 255, 255))],
-        "naranja":  [((11, 120, 90), (22, 255, 255))],
-        "amarillo": [((23, 90, 90), (33, 255, 255))],
-        "verde":    [((34, 70, 60), (85, 255, 255))],
-        "azul":     [((86, 90, 60), (125, 255, 255))],
-        "violeta":  [((126, 60, 60), (160, 255, 255))],
+        "rojo":     [((0, 110, 90), (8, 255, 255)), ((172, 110, 90), (179, 255, 255))],
+        "naranja":  [((9, 120, 110), (20, 255, 255))],
+        "amarillo": [((21, 100, 110), (33, 255, 255))],
+        "verde":    [((38, 80, 70), (85, 255, 255))],
+        "azul":     [((95, 110, 70), (126, 255, 255))],
+        "violeta":  [((127, 70, 70), (158, 255, 255))],
     }
     DRAW = {"rojo": (60, 60, 255), "naranja": (0, 140, 255), "amarillo": (0, 220, 220),
             "verde": (0, 220, 0), "azul": (255, 150, 0), "violeta": (200, 0, 200)}
 
-    def __init__(self, min_area=1500):
+    # Las 80 clases COCO en espanol SIN acentos (cv2.putText solo dibuja ASCII)
+    COCO_ES = [
+        "persona", "bicicleta", "auto", "moto", "avion", "bus", "tren", "camion", "bote", "semaforo",
+        "hidrante", "senal de alto", "parquimetro", "banca", "pajaro", "gato", "perro", "caballo", "oveja", "vaca",
+        "elefante", "oso", "cebra", "jirafa", "mochila", "paraguas", "bolso", "corbata", "maleta", "frisbee",
+        "esquis", "snowboard", "pelota", "cometa", "bate", "guante", "patineta", "tabla de surf", "raqueta", "botella",
+        "copa", "taza", "tenedor", "cuchillo", "cuchara", "tazon", "banana", "manzana", "sandwich", "naranja",
+        "brocoli", "zanahoria", "hot dog", "pizza", "dona", "pastel", "silla", "sofa", "planta", "cama",
+        "mesa", "inodoro", "televisor", "laptop", "mouse", "control remoto", "teclado", "telefono", "microondas", "horno",
+        "tostadora", "lavabo", "refrigerador", "libro", "reloj", "florero", "tijeras", "peluche", "secador", "cepillo",
+    ]
+    FILTERS = ("normal", "bordes", "contornos", "gris", "termica", "movimiento")
+
+    def __init__(self, min_area=1200):
         self.colors_on = False
-        self.people_on = False
+        self.objects_on = False
+        self.filter = "normal"
         self.min_area = min_area          # ignora manchas de color mas chicas que esto (px)
         self._hog = None
+        self._net = None
+        self._out_names = None
+        self.dnn_ok = False
         self._frame_i = 0
+        self._obj_cache = []              # [(box, label, conf)] del ultimo pase de la red
         self._person_boxes = []
-        self.counts = {"personas": 0, "colores": 0}
+        self._prev_motion = None
+        self.counts = {"objetos": 0, "colores": 0}
+        self.detections = []              # [{label, conf}] para el frontend
+        self._load_dnn()
 
     @property
     def active(self):
-        return self.colors_on or self.people_on
+        return self.colors_on or self.objects_on or self.filter != "normal"
 
-    def _ensure_hog(self):
+    # -- red neuronal (YOLOv4-tiny) ---------------------------------------
+    def _load_dnn(self):
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+        cfg, weights = os.path.join(base, "yolov4-tiny.cfg"), os.path.join(base, "yolov4-tiny.weights")
+        if not (os.path.exists(cfg) and os.path.exists(weights)):
+            print("[vision] modelo YOLO no encontrado en backend/models/ -> "
+                  "'Objetos' usara HOG (solo personas). Ver backend/models/README.md")
+            return
+        try:
+            self._net = cv2.dnn.readNetFromDarknet(cfg, weights)
+            try:   # si este build de OpenCV trae CUDA, usarla; si no, CPU
+                self._net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+                self._net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+            except Exception:
+                pass
+            self._out_names = self._net.getUnconnectedOutLayersNames()
+            self.dnn_ok = True
+            print("[vision] YOLOv4-tiny cargado (80 clases COCO)")
+        except Exception as e:
+            self._net = None
+            print(f"[vision] no se pudo cargar YOLO: {e}")
+
+    @staticmethod
+    def _class_color(name):
+        """Color BGR estable por clase (derivado del nombre)."""
+        h = sum(ord(c) for c in name) * 47 % 180
+        col = cv2.cvtColor(np.uint8([[[h, 200, 255]]]), cv2.COLOR_HSV2BGR)[0][0]
+        return int(col[0]), int(col[1]), int(col[2])
+
+    def _detect_objects(self, src, out):
+        """YOLO cada 3 cuadros (es pesada) con cache de cajas en el medio."""
+        if not self.dnn_ok:
+            self._detect_people_hog(src, out)
+            return
+        self._frame_i += 1
+        if self._frame_i % 3 == 0:
+            h, w = src.shape[:2]
+            blob = cv2.dnn.blobFromImage(src, 1 / 255.0, (320, 320), swapRB=True, crop=False)
+            self._net.setInput(blob)
+            boxes, confs, ids = [], [], []
+            for o in self._net.forward(self._out_names):
+                for d in o:
+                    scores = d[5:]
+                    cid = int(np.argmax(scores))
+                    conf = float(scores[cid])
+                    if conf < 0.45:
+                        continue
+                    bw, bh = d[2] * w, d[3] * h
+                    boxes.append([int(d[0] * w - bw / 2), int(d[1] * h - bh / 2), int(bw), int(bh)])
+                    confs.append(conf)
+                    ids.append(cid)
+            keep = cv2.dnn.NMSBoxes(boxes, confs, 0.45, 0.4)
+            keep = np.array(keep).flatten() if len(keep) else []
+            self._obj_cache = [(boxes[i], self.COCO_ES[ids[i]], confs[i]) for i in keep]
+            self.detections = [{"label": l, "conf": round(c, 2)} for _, l, c in self._obj_cache]
+            self.counts["objetos"] = len(self._obj_cache)
+        for (x, y, bw, bh), label, conf in self._obj_cache:
+            col = self._class_color(label)
+            cv2.rectangle(out, (x, y), (x + bw, y + bh), col, 2)
+            cv2.putText(out, f"{label} {conf:.0%}", (x + 2, max(y - 6, 14)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2)
+
+    def _detect_people_hog(self, src, out):
+        """Fallback sin modelo: HOG+SVM de OpenCV (solo personas de cuerpo entero)."""
         if self._hog is None:
             self._hog = cv2.HOGDescriptor()
             self._hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-        return self._hog
+        self._frame_i += 1
+        if self._frame_i % 3 == 0:
+            scale = 640.0 / src.shape[1] if src.shape[1] > 640 else 1.0
+            small = cv2.resize(src, None, fx=scale, fy=scale) if scale < 1 else src
+            rects, _ = self._hog.detectMultiScale(small, winStride=(8, 8), padding=(8, 8), scale=1.05)
+            self._person_boxes = [(int(x / scale), int(y / scale),
+                                   int(w / scale), int(h / scale)) for (x, y, w, h) in rects]
+            self.detections = [{"label": "persona", "conf": 0.5} for _ in self._person_boxes]
+            self.counts["objetos"] = len(self._person_boxes)
+        for (x, y, w, h) in self._person_boxes:
+            cv2.rectangle(out, (x, y), (x + w, y + h), (0, 255, 120), 2)
+            cv2.putText(out, "persona", (x + 2, max(y - 6, 12)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 120), 2)
 
-    def _detect_colors(self, frame):
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    # -- colores ------------------------------------------------------------
+    def _detect_colors(self, src, out):
+        hsv = cv2.cvtColor(src, cv2.COLOR_BGR2HSV)
         found = 0
         for name, ranges in self.COLORS.items():
             mask = None
@@ -174,34 +275,64 @@ class Vision:
                 if cv2.contourArea(c) < self.min_area:
                     continue
                 x, y, w, h = cv2.boundingRect(c)
-                cv2.rectangle(frame, (x, y), (x + w, y + h), col, 2)
-                cv2.putText(frame, name, (x + 2, max(y - 6, 12)),
+                cv2.rectangle(out, (x, y), (x + w, y + h), col, 2)
+                cv2.putText(out, name, (x + 2, max(y - 6, 12)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2)
                 found += 1
         self.counts["colores"] = found
 
-    def _detect_people(self, frame):
-        self._frame_i += 1
-        # HOG es caro -> correrlo cada 3 frames en baja resolucion y cachear las cajas
-        if self._frame_i % 3 == 0:
-            scale = 640.0 / frame.shape[1] if frame.shape[1] > 640 else 1.0
-            small = cv2.resize(frame, None, fx=scale, fy=scale) if scale < 1 else frame
-            rects, _ = self._ensure_hog().detectMultiScale(
-                small, winStride=(8, 8), padding=(8, 8), scale=1.05)
-            self._person_boxes = [(int(x / scale), int(y / scale),
-                                   int(w / scale), int(h / scale)) for (x, y, w, h) in rects]
-        for (x, y, w, h) in self._person_boxes:
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 120), 2)
-            cv2.putText(frame, "persona", (x + 2, max(y - 6, 12)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 120), 2)
-        self.counts["personas"] = len(self._person_boxes)
+    @staticmethod
+    def classify_hsv(h, s, v):
+        """Nombra un pixel HSV (para el cuentagotas)."""
+        if v < 45:
+            return "negro"
+        if s < 45:
+            return "blanco" if v > 170 else "gris"
+        for name, ranges in Vision.COLORS.items():
+            for lo, hi in ranges:
+                if lo[0] <= h <= hi[0]:
+                    return name
+        return "sin clasificar"
+
+    # -- filtros de laboratorio ----------------------------------------------
+    def _apply_filter(self, frame):
+        f = self.filter
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        if f == "bordes":
+            return cv2.cvtColor(cv2.Canny(gray, 60, 140), cv2.COLOR_GRAY2BGR)
+        if f == "gris":
+            return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        if f == "termica":
+            return cv2.applyColorMap(gray, cv2.COLORMAP_JET)
+        if f == "contornos":
+            cnts, _ = cv2.findContours(cv2.Canny(gray, 60, 140),
+                                       cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            out = frame.copy()
+            cv2.drawContours(out, cnts, -1, (80, 220, 255), 1)
+            return out
+        if f == "movimiento":
+            g = cv2.GaussianBlur(gray, (15, 15), 0)
+            if self._prev_motion is None:
+                self._prev_motion = g
+                return frame
+            diff = cv2.absdiff(self._prev_motion, g)
+            self._prev_motion = g
+            _, mask = cv2.threshold(diff, 18, 255, cv2.THRESH_BINARY)
+            mask = cv2.dilate(mask, None, iterations=2)
+            tint = frame.copy()
+            tint[mask > 0] = (0, 255, 120)    # verde = lo que se movio
+            return cv2.addWeighted(frame, 0.55, tint, 0.45, 0)
+        return frame
 
     def apply(self, frame):
+        # el filtro genera OTRA imagen; las detecciones se calculan sobre el
+        # frame ORIGINAL (colores reales) y se dibujan sobre la imagen filtrada
+        out = self._apply_filter(frame) if self.filter != "normal" else frame
         if self.colors_on:
-            self._detect_colors(frame)
-        if self.people_on:
-            self._detect_people(frame)
-        return frame
+            self._detect_colors(frame, out)
+        if self.objects_on:
+            self._detect_objects(frame, out)
+        return out
 
 
 class Camera:
@@ -213,6 +344,11 @@ class Camera:
         self.stabilize_enabled = stabilize
         self.stabilizer = Stabilizer() if _HAS_CV2 else None
         self.vision = Vision() if _HAS_CV2 else None
+        # la camara del robot va montada invertida -> flip-method=2 (180 grados).
+        # Ajustable con CAMERA_FLIP=0 o el boton "Girar 180" del dashboard.
+        self.flip = int(os.environ.get("CAMERA_FLIP", "2"))
+        self.last_raw = None    # ultimo frame limpio (para el cuentagotas)
+        self.last_out = None    # ultimo frame procesado (para la foto)
         if _HAS_CV2:
             self._open()
 
@@ -223,27 +359,82 @@ class Camera:
             self.stabilizer.reset()
         return self.stabilize_enabled
 
-    def set_vision(self, colors=None, people=None):
+    def set_flip(self):
+        """Alterna la rotacion 180 grados y reabre el pipeline (el flip lo hace
+        el hardware del Jetson via nvvidconv, asi que hay que reabrir)."""
+        self.flip = 0 if self.flip else 2
+        if _HAS_CV2:
+            with self.lock:
+                try:
+                    if self.cap:
+                        self.cap.release()
+                except Exception:
+                    pass
+                self.cap = None
+                self._open()
+        if self.stabilizer is not None:
+            self.stabilizer.reset()
+        return self.flip
+
+    def set_vision(self, colors=None, objects=None):
         """Enciende/apaga las capas de vision. Devuelve el estado resultante."""
         if self.vision is None:
-            return {"colores": False, "personas": False, "disponible": False}
+            return self.vision_status()
         if colors is not None:
             self.vision.colors_on = bool(colors)
-        if people is not None:
-            self.vision.people_on = bool(people)
+        if objects is not None:
+            self.vision.objects_on = bool(objects)
+        return self.vision_status()
+
+    def set_filter(self, name):
+        if self.vision is not None and name in Vision.FILTERS:
+            self.vision.filter = name
+            self.vision._prev_motion = None
         return self.vision_status()
 
     def vision_status(self):
         if self.vision is None:
-            return {"colores": False, "personas": False, "disponible": False, "counts": {}}
-        return {"colores": self.vision.colors_on, "personas": self.vision.people_on,
-                "disponible": True, "counts": self.vision.counts}
+            return {"colores": False, "objetos": False, "filtro": "normal",
+                    "dnn": False, "disponible": False, "counts": {}, "detections": []}
+        return {"colores": self.vision.colors_on, "objetos": self.vision.objects_on,
+                "filtro": self.vision.filter, "dnn": self.vision.dnn_ok,
+                "disponible": True, "counts": self.vision.counts,
+                "detections": self.vision.detections if self.vision.objects_on else []}
+
+    def probe(self, x, y):
+        """Cuentagotas: color en el punto (x, y) normalizado [0-1] del video."""
+        f = self.last_raw
+        if f is None:
+            return {"ok": False, "error": "sin video activo (abre la camara primero)"}
+        h, w = f.shape[:2]
+        px = int(min(max(x, 0.0), 0.999) * w)
+        py = int(min(max(y, 0.0), 0.999) * h)
+        patch = f[max(py - 3, 0):py + 4, max(px - 3, 0):px + 4]   # media 7x7 (anti-ruido)
+        b, g, r = [int(v) for v in patch.reshape(-1, 3).mean(axis=0)]
+        hsv = cv2.cvtColor(np.uint8([[[b, g, r]]]), cv2.COLOR_BGR2HSV)[0][0]
+        H, S, V = int(hsv[0]), int(hsv[1]), int(hsv[2])
+        return {"ok": True, "hex": f"#{r:02x}{g:02x}{b:02x}", "rgb": [r, g, b],
+                "hsv": [H, S, V], "nombre": Vision.classify_hsv(H, S, V)}
+
+    def snapshot(self):
+        """Guarda una foto (con las capas activas dibujadas) en captures/."""
+        f = self.last_out if self.last_out is not None else self.last_raw
+        if f is None:
+            return {"ok": False, "error": "sin video activo (abre la camara primero)"}
+        os.makedirs("captures", exist_ok=True)
+        name = f"captures/foto_{int(time.time())}.jpg"
+        try:
+            cv2.imwrite(name, f)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "saved": name, "url": "/" + name}
 
     def _open(self):
         try:
-            self.cap = cv2.VideoCapture(gst_pipeline(self.sensor_id), cv2.CAP_GSTREAMER)
+            self.cap = cv2.VideoCapture(gst_pipeline(self.sensor_id, flip=self.flip),
+                                        cv2.CAP_GSTREAMER)
             if self.cap.isOpened():
-                print("[camera] camara abierta (IMX477)")
+                print(f"[camera] camara abierta (IMX477, flip={self.flip})")
             else:
                 self.cap = None
                 print("[camera] no se pudo abrir el pipeline GStreamer")
@@ -272,12 +463,15 @@ class Camera:
                 except Exception as e:
                     print(f"[camera] EIS fallo, sigo sin estabilizar: {e}")
                     self.stabilize_enabled = False
+            self.last_raw = frame.copy()   # frame limpio para el cuentagotas
             if self.vision is not None and self.vision.active:
                 try:
                     frame = self.vision.apply(frame)
                 except Exception as e:
                     print(f"[camera] vision fallo, la desactivo: {e}")
-                    self.vision.colors_on = self.vision.people_on = False
+                    self.vision.colors_on = self.vision.objects_on = False
+                    self.vision.filter = "normal"
+            self.last_out = frame          # frame final (con capas) para la foto
             ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
             if ok:
                 yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"

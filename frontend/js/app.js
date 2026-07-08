@@ -541,52 +541,141 @@ function lidarRetosHTML() {
     </div>`;
 }
 
-/* ---------------- Visión: colores + personas ---------------- */
+/* ---------------- Visión: IA de objetos + colores + laboratorio ---------------- */
 let _visionIV = null;
+const V_FILTERS = [["normal", "Normal"], ["bordes", "Bordes"], ["contornos", "Contornos"],
+                   ["gris", "Gris"], ["termica", "Térmica"], ["movimiento", "Movimiento"]];
 function visionHTML() {
   return `
     <div class="panels">
-      <div class="panel tall"><h3>Cámara con visión</h3>
+      <div class="panel tall"><h3>Cámara inteligente</h3>
         <div class="cam">
-          <img src="/api/camera" alt="camara con visión"
+          <img id="visCam" src="/api/camera" alt="camara con visión" style="cursor:crosshair" title="Toca el video para medir el color en ese punto"
                onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
           <div style="display:none">${placeholder("Cámara sin señal", "Inicia el server en el Jetson con la cámara conectada.", "IMX477")}</div>
         </div>
         <div class="btn-row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
           <button class="btn" id="vColorBtn">🎨 Colores: OFF</button>
-          <button class="btn" id="vPersonBtn">🧍 Personas: OFF</button>
+          <button class="btn" id="vObjBtn">🧠 Objetos (IA): OFF</button>
+          <button class="btn" id="vSnapBtn">📸 Foto</button>
+          <button class="btn" id="vFlipBtn" title="Por si la imagen se ve al revés">🔃 Girar 180°</button>
         </div>
-        <div class="metric" style="margin-top:8px"><span class="k">Colores detectados</span><span class="v" id="v-colors">0</span></div>
-        <div class="metric"><span class="k">Personas detectadas</span><span class="v" id="v-people">0</span></div>
+        <div style="margin-top:10px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)">Laboratorio de filtros</div>
+        <div class="btn-row" id="vFilters" style="margin-top:6px;gap:6px;flex-wrap:wrap">
+          ${V_FILTERS.map(([f, label]) => `<button class="btn" style="padding:7px 12px;font-size:12px" data-vf="${f}">${label}</button>`).join("")}
+        </div>
+        <div id="vDnnWarn" style="display:none;margin-top:10px;font-size:12px;color:#fbbf24;line-height:1.5">
+          ⚠ El modelo de IA no está instalado: "Objetos" solo verá personas (HOG, impreciso).
+          Instálalo en 1 minuto — instrucciones en <code>backend/models/README.md</code>.
+        </div>
       </div>
-      <div class="panel" style="line-height:1.65">
-        <h3>¿Cómo reconoce colores?</h3>
-        <p>La imagen se pasa a espacio <b>HSV</b> (Tono, Saturación, Valor). El <b>tono</b> es el color puro, así que separar "rojo" de "azul" es fácil aunque cambie la luz — mucho más estable que en RGB.</p>
-        <p>Marca cada zona con su nombre: rojo, naranja, amarillo, verde, azul y violeta. Las manchas muy pequeñas se ignoran (ruido).</p>
-        <h3>¿Cómo detecta personas?</h3>
-        <p>Usa <b>HOG + SVM</b> (Histogram of Oriented Gradients), un detector de <b>cuerpo completo</b> que ya trae OpenCV: mira la <i>silueta</i>, no la cara. Corre cada pocos cuadros para no frenar el video.</p>
-        <p style="opacity:.7;font-size:12px">Funciona mejor con la persona <b>de pie y completa</b> en el cuadro y con buena luz.</p>
+      <div class="panel"><h3>Detecciones en vivo</h3>
+        <div class="metric"><span class="k">Objetos (IA)</span><span class="v" id="v-obj-count">0</span></div>
+        <div class="metric"><span class="k">Colores</span><span class="v" id="v-col-count">0</span></div>
+        <div id="v-dets" style="margin-top:8px;font-family:var(--mono);font-size:12.5px;line-height:1.9;opacity:.9">—</div>
+        <h3 style="margin-top:16px">🔬 Cuentagotas</h3>
+        <div id="v-probe" style="font-size:13px;opacity:.85;line-height:1.6">Toca cualquier punto del video y te digo su color con sus valores <b>HSV</b> — los mismos números que usa el detector de colores.</div>
+      </div>
+      <div class="panel" style="line-height:1.6;font-size:13.5px">
+        <h3>Cómo funciona</h3>
+        <p><b>🧠 Objetos (IA):</b> una red neuronal <b>YOLO</b> mira el cuadro completo UNA vez y predice qué hay y dónde: reconoce <b>80 clases</b> (persona, teléfono, botella, laptop, silla, perro…) — <b>varias a la vez</b>, cada una con su % de confianza.</p>
+        <p><b>🎨 Colores:</b> convierte la imagen a <b>HSV</b>; el canal H (tono) identifica el color puro sin que lo confunda la luz. Solo marca colores <i>vivos</i> — usa el cuentagotas para entender por qué un objeto pálido no cuenta.</p>
+        <p><b>🔬 Filtros:</b> <i>Bordes</i> = algoritmo de Canny (cambios bruscos de intensidad) · <i>Contornos</i> = siluetas cerradas · <i>Térmica</i> = brillo→mapa de calor (no mide temperatura real) · <i>Movimiento</i> = resta el cuadro anterior: solo lo que cambió se pinta verde.</p>
       </div>
     </div>`;
 }
 function mountVision() {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  const cBtn = document.getElementById("vColorBtn"), pBtn = document.getElementById("vPersonBtn");
+  const cBtn = document.getElementById("vColorBtn"), oBtn = document.getElementById("vObjBtn");
   const paint = (st) => {
     if (!st || st.disponible === false) return;
     if (cBtn) { cBtn.textContent = "🎨 Colores: " + (st.colores ? "ON" : "OFF"); cBtn.classList.toggle("accent", !!st.colores); }
-    if (pBtn) { pBtn.textContent = "🧍 Personas: " + (st.personas ? "ON" : "OFF"); pBtn.classList.toggle("accent", !!st.personas); }
-    if (st.counts) { set("v-colors", st.counts.colores ?? 0); set("v-people", st.counts.personas ?? 0); }
+    if (oBtn) { oBtn.textContent = "🧠 Objetos (IA): " + (st.objetos ? "ON" : "OFF"); oBtn.classList.toggle("accent", !!st.objetos); }
+    document.querySelectorAll("#vFilters [data-vf]").forEach(b => b.classList.toggle("accent", b.dataset.vf === st.filtro));
+    if (st.counts) { set("v-col-count", st.counts.colores ?? 0); set("v-obj-count", st.counts.objetos ?? 0); }
+    const dets = document.getElementById("v-dets");
+    if (dets) dets.innerHTML = (st.detections || []).length
+      ? st.detections.map(d => `▸ ${d.label} <span style="opacity:.6">${Math.round(d.conf * 100)}%</span>`).join("<br>")
+      : (st.objetos ? "buscando…" : "—");
+    const warn = document.getElementById("vDnnWarn");
+    if (warn) warn.style.display = st.dnn === false ? "block" : "none";
   };
   if (cBtn) cBtn.onclick = async () => paint(await api.vision("color"));
-  if (pBtn) pBtn.onclick = async () => paint(await api.vision("person"));
+  if (oBtn) oBtn.onclick = async () => paint(await api.vision("objects"));
+  const snap = document.getElementById("vSnapBtn");
+  if (snap) snap.onclick = async () => {
+    const r = await api.snapshot();
+    if (r.ok && r.url) window.open(r.url, "_blank"); else alert(r.error || "No se pudo tomar la foto");
+  };
+  const flip = document.getElementById("vFlipBtn");
+  if (flip) flip.onclick = async () => {
+    await api.flip();
+    const img = document.getElementById("visCam");           // recargar el stream tras reabrir el pipeline
+    if (img) setTimeout(() => { img.src = "/api/camera?" + Date.now(); }, 800);
+  };
+  document.querySelectorAll("#vFilters [data-vf]").forEach(b => b.onclick = async () => paint(await api.visionFilter(b.dataset.vf)));
+  const img = document.getElementById("visCam");
+  if (img) img.onclick = async (e) => {                       // cuentagotas
+    const r = img.getBoundingClientRect();
+    const res = await api.probe(((e.clientX - r.left) / r.width).toFixed(3), ((e.clientY - r.top) / r.height).toFixed(3));
+    const box = document.getElementById("v-probe");
+    if (!box) return;
+    box.innerHTML = res.ok
+      ? `<span style="display:inline-block;width:20px;height:20px;border-radius:6px;background:${res.hex};vertical-align:-5px;border:1px solid rgba(255,255,255,.35)"></span>
+         &nbsp;<b>${res.nombre}</b> · <code>${res.hex}</code><br>
+         <span style="opacity:.7">H ${res.hsv[0]} (tono) · S ${res.hsv[1]} (saturación) · V ${res.hsv[2]} (brillo)</span>`
+      : (res.error || "sin datos — ¿está la cámara encendida?");
+  };
   api.visionStatus().then(paint);
   if (_visionIV) clearInterval(_visionIV);
-  _visionIV = setInterval(() => api.visionStatus().then(paint), 1500);   // refresca los conteos
+  _visionIV = setInterval(() => api.visionStatus().then(paint), 1200);   // refresca detecciones
+}
+
+/* ---------------- página de inicio: todos los módulos por nivel ---------------- */
+const LEVELS = [
+  ["control",    "Centro de control", "#2dd4ee"],
+  ["inicial",    "Nivel inicial",     "#34d399"],
+  ["secundaria", "Nivel secundaria",  "#38bdf8"],
+  ["superior",   "Nivel superior",    "#a78bfa"],
+  ["avanzado",   "Avanzado",          "#f59e0b"],
+];
+const MODULES = [
+  { view: "dashboard",      icon: "⬡",  name: "Dashboard",                level: "control",    desc: "Conduce al robot, mira la cámara y la telemetría en tiempo real." },
+  { view: "inicial-drive",  icon: "🎮", name: "Maneja al robot",          level: "inicial",    desc: "Flechas o joystick: conduce a NEO y mira lo que ve con su cámara." },
+  { view: "inicial-blocks", icon: "🧩", name: "Programa con bloques",     level: "inicial",    desc: "Arma programas como un rompecabezas y NEO los ejecuta." },
+  { view: "inicial-tricks", icon: "⭐", name: "Trucos",                   level: "inicial",    desc: "Saluda, cambia de caminata y otras animaciones divertidas." },
+  { view: "sec-blocks",     icon: "🧠", name: "Bloques + sensores",       level: "secundaria", desc: "Bucles y condicionales conectados a los sensores del robot." },
+  { view: "sec-lidar",      icon: "🛰", name: "Radar láser 360°",         level: "secundaria", desc: "El LIDAR mide distancias con láser: radar en vivo, marcadores y retos." },
+  { view: "sec-ik",         icon: "🦿", name: "Cómo caminan las patas",   level: "secundaria", desc: "Geometría inversa (IK) y las 3 marchas del robot, desde 4 ángulos." },
+  { view: "sup-vision",     icon: "👁", name: "Visión artificial",        level: "superior",   desc: "IA que reconoce 80 objetos, detector de colores HSV, filtros y cuentagotas." },
+  { view: "sup-slam",       icon: "🗺", name: "Mapeo SLAM",               level: "superior",   desc: "Construye un mapa del entorno con el LIDAR mientras el robot se ubica." },
+  { view: "sup-api",        icon: "⌨",  name: "API de programación",      level: "superior",   desc: "Controla al robot desde tu propio código con la API REST." },
+  { view: "dev",            icon: "🛠", name: "Modo desarrollador",       level: "avanzado",   desc: "Consola serial del ESP32 y todas las teclas del firmware. Calibración." },
+];
+window.__go = (view) => { const b = document.querySelector(`.nav-item[data-view="${view}"]`); if (b) b.click(); };
+function homeHTML() {
+  const groups = {};
+  for (const m of MODULES) (groups[m.level] = groups[m.level] || []).push(m);
+  return `
+    <div class="home-hero"><span class="hh-logo">◣◢</span><div>
+      <h1 style="margin:0;font-size:24px">NEO · Centro educativo</h1>
+      <p style="margin:3px 0 0;color:var(--muted);font-size:13.5px">Un robot, tres niveles. Elige un módulo para empezar.</p>
+    </div></div>` +
+    LEVELS.map(([id, label, color]) => !groups[id] ? "" : `
+      <div class="home-level">
+        <div class="home-level-title"><span class="lv-dot" style="background:${color}"></span>${label}</div>
+        <div class="home-grid">${groups[id].map(m => `
+          <button class="home-card" style="--lv:${color}" onclick="window.__go('${m.view}')">
+            <span class="hc-icon">${m.icon}</span>
+            <b>${m.name}</b>
+            <p>${m.desc}</p>
+          </button>`).join("")}</div>
+      </div>`).join("");
 }
 
 /* ---------------- vistas / modulos ---------------- */
 const views = {
+  home: () => homeHTML(),
   dashboard: () => head("Dashboard", "Control y telemetria en tiempo real") + `
     <div class="panels">
       <div class="panel tall"><h3>Control</h3>${controlBar}${dpad}
@@ -605,11 +694,15 @@ const views = {
     <div class="panels"><div class="panel tall"><h3>Conducir</h3>${controlBar}${dpad}<div id="joyzone" style="display:none"></div></div>
       <div class="panel"><h3>Cámara</h3>${cameraView}</div></div>`,
   "inicial-blocks": () => head("Programa a NEO", "Arrastra bloques, encájalos y dale ▶ Ejecutar") + `
+    <div class="blocks-hero"><span class="bh-ico">🧩</span><div>
+      <b>Arma tu programa como un rompecabezas</b>
+      <p>Cada bloque es una orden para NEO. Encájalos en orden, presiona ▶ Ejecutar, y el perrito de la derecha te muestra lo que va a hacer.</p>
+    </div></div>
     <div class="blocks-layout">
       <div class="blocks-main">
         <div class="btn-row" style="margin-bottom:12px">
-          <button class="btn accent" id="runBtn">▶ Ejecutar</button>
-          <button class="btn warn" id="stopBtn">⏹ Detener</button>
+          <button class="btn accent big" id="runBtn">▶ Ejecutar</button>
+          <button class="btn warn big" id="stopBtn">⏹ Detener</button>
         </div>
         <div id="blocklyDiv" class="blockly"></div>
       </div>
@@ -646,7 +739,7 @@ const views = {
     </div>
     <div id="ikContent"></div>`,
 
-  "sup-vision": () => head("Visión: colores y personas", "Reconoce colores y detecta personas con la cámara") + visionHTML(),
+  "sup-vision": () => head("Visión artificial", "IA que reconoce 80 objetos, colores HSV, filtros de laboratorio y cuentagotas") + visionHTML(),
   "sup-slam": () => head("Mapeo SLAM", "Construye un mapa del entorno") +
     placeholder("Mapa 2D + navegación", "SLAM con el LIDAR: construye un mapa y navega evitando obstáculos.", "LIDAR · avanzado"),
   "sup-api": () => head("API de programación", "Controla el robot por código") + `
@@ -750,4 +843,4 @@ if (themeBtn) themeBtn.onclick = () =>
   applyTheme(document.body.classList.contains("light") ? "dark" : "light");
 applyTheme(localStorage.getItem("neo-theme") || "dark");  // recuerda la preferencia
 
-render("dashboard");
+render("home");

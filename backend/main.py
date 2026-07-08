@@ -111,21 +111,45 @@ def api_camera_status():
     return {"available": camera.available, "stabilize": camera.stabilize_enabled}
 
 
+@app.post("/api/camera/flip", tags=["sensores"])
+def api_camera_flip():
+    """Gira la imagen 180 grados (por si la camara quedo montada al reves)."""
+    return {"ok": True, "flip": camera.set_flip()}
+
+
+@app.post("/api/camera/snapshot", tags=["sensores"])
+def api_camera_snapshot():
+    """Guarda una foto del video actual (con las capas de vision dibujadas)."""
+    return camera.snapshot()
+
+
+@app.get("/api/vision/probe", tags=["sensores"])
+def api_vision_probe(x: float = 0.5, y: float = 0.5):
+    """Cuentagotas: color (RGB/HSV + nombre) en un punto normalizado del video."""
+    return camera.probe(x, y)
+
+
+@app.post("/api/vision/filter/{name}", tags=["sensores"])
+def api_vision_filter(name: str):
+    """Filtro de laboratorio: normal | bordes | contornos | gris | termica | movimiento."""
+    return camera.set_filter(name)
+
+
 @app.post("/api/vision/{layer}", tags=["sensores"])
 def api_vision(layer: str):
-    """Alterna una capa de vision sobre la camara: 'color' | 'person'."""
+    """Alterna una capa de vision: 'color' | 'objects' (IA: 80 clases, o HOG sin modelo)."""
     if camera.vision is None:
         return {"disponible": False}
     if layer == "color":
         camera.set_vision(colors=not camera.vision.colors_on)
-    elif layer == "person":
-        camera.set_vision(people=not camera.vision.people_on)
+    elif layer in ("objects", "person"):   # 'person' se mantiene por compatibilidad
+        camera.set_vision(objects=not camera.vision.objects_on)
     return camera.vision_status()
 
 
 @app.get("/api/vision/status", tags=["sensores"])
 def api_vision_status():
-    """Estado de las capas de vision + conteos (personas / colores detectados)."""
+    """Estado de las capas de vision + detecciones actuales."""
     return camera.vision_status()
 
 
@@ -174,6 +198,9 @@ async def ws_console(ws: WebSocket):
 
 
 # ===========================================================================
-# Servir el frontend (debe ir al final para no tapar las rutas /api)
+# Servir capturas (fotos y escaneos LIDAR) y el frontend
+# (el mount "/" va al FINAL para no tapar las rutas /api y /captures)
 # ===========================================================================
+os.makedirs("captures", exist_ok=True)
+app.mount("/captures", StaticFiles(directory="captures"), name="captures")
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
