@@ -11,6 +11,9 @@ export const api = {
   raw:    (key)     => post(`/api/raw/${encodeURIComponent(key)}`),
   stabilize: ()     => post("/api/camera/stabilize"),
   lidarCapture: ()  => post("/api/lidar/capture"),
+  lidarStatus: ()   => fetch("/api/lidar/status").then(r => r.json()).catch(() => ({})),
+  vision: (layer)   => post(`/api/vision/${layer}`),          // layer: "color" | "person"
+  visionStatus: ()  => fetch("/api/vision/status").then(r => r.json()).catch(() => ({})),
   state:  ()        => fetch("/api/state").then(r => r.json()).catch(() => ({})),
 };
 

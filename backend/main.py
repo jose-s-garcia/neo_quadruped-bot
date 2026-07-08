@@ -111,6 +111,24 @@ def api_camera_status():
     return {"available": camera.available, "stabilize": camera.stabilize_enabled}
 
 
+@app.post("/api/vision/{layer}", tags=["sensores"])
+def api_vision(layer: str):
+    """Alterna una capa de vision sobre la camara: 'color' | 'person'."""
+    if camera.vision is None:
+        return {"disponible": False}
+    if layer == "color":
+        camera.set_vision(colors=not camera.vision.colors_on)
+    elif layer == "person":
+        camera.set_vision(people=not camera.vision.people_on)
+    return camera.vision_status()
+
+
+@app.get("/api/vision/status", tags=["sensores"])
+def api_vision_status():
+    """Estado de las capas de vision + conteos (personas / colores detectados)."""
+    return camera.vision_status()
+
+
 # ===========================================================================
 # LIDAR (RPLIDAR C1: escaneo 2D, objetos, distancia, tamano, velocidad)
 # ===========================================================================
@@ -133,7 +151,8 @@ def api_lidar_capture():
 
 @app.get("/api/lidar/status", tags=["sensores"])
 def api_lidar_status():
-    return {"available": lidar.available, "objects": len(lidar.objects)}
+    """Info del sensor: modelo, firmware, salud, tasa de escaneo, specs."""
+    return lidar.status()
 
 
 # ===========================================================================

@@ -118,6 +118,92 @@ class Stabilizer:
         return cv2.resize(out[y0:y0 + ch, x0:x0 + cw], (w, h))
 
 
+class Vision:
+    """Vision por computador sobre el frame (solo OpenCV, sin modelos externos).
+
+    Dos capacidades, encendibles por separado:
+      - COLORES: umbraliza en espacio HSV (mas estable que RGB ante cambios de luz),
+        agrupa por contornos y marca cada mancha con su color y tamano.
+      - PERSONAS: detector de peatones HOG + SVM que ya trae OpenCV (cuerpo completo,
+        no rostros). Es pesado, asi que corre cada pocos frames sobre una version
+        reducida y reutiliza las cajas (cache) para no bajar los FPS.
+    """
+    # Rangos HSV (OpenCV: H 0-179, S 0-255, V 0-255). El rojo cruza el 0 -> 2 rangos.
+    COLORS = {
+        "rojo":     [((0, 120, 80), (10, 255, 255)), ((170, 120, 80), (179, 255, 255))],
+        "naranja":  [((11, 120, 90), (22, 255, 255))],
+        "amarillo": [((23, 90, 90), (33, 255, 255))],
+        "verde":    [((34, 70, 60), (85, 255, 255))],
+        "azul":     [((86, 90, 60), (125, 255, 255))],
+        "violeta":  [((126, 60, 60), (160, 255, 255))],
+    }
+    DRAW = {"rojo": (60, 60, 255), "naranja": (0, 140, 255), "amarillo": (0, 220, 220),
+            "verde": (0, 220, 0), "azul": (255, 150, 0), "violeta": (200, 0, 200)}
+
+    def __init__(self, min_area=1500):
+        self.colors_on = False
+        self.people_on = False
+        self.min_area = min_area          # ignora manchas de color mas chicas que esto (px)
+        self._hog = None
+        self._frame_i = 0
+        self._person_boxes = []
+        self.counts = {"personas": 0, "colores": 0}
+
+    @property
+    def active(self):
+        return self.colors_on or self.people_on
+
+    def _ensure_hog(self):
+        if self._hog is None:
+            self._hog = cv2.HOGDescriptor()
+            self._hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+        return self._hog
+
+    def _detect_colors(self, frame):
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        found = 0
+        for name, ranges in self.COLORS.items():
+            mask = None
+            for lo, hi in ranges:
+                m = cv2.inRange(hsv, np.array(lo), np.array(hi))
+                mask = m if mask is None else (mask | m)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+            cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            col = self.DRAW[name]
+            for c in cnts:
+                if cv2.contourArea(c) < self.min_area:
+                    continue
+                x, y, w, h = cv2.boundingRect(c)
+                cv2.rectangle(frame, (x, y), (x + w, y + h), col, 2)
+                cv2.putText(frame, name, (x + 2, max(y - 6, 12)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2)
+                found += 1
+        self.counts["colores"] = found
+
+    def _detect_people(self, frame):
+        self._frame_i += 1
+        # HOG es caro -> correrlo cada 3 frames en baja resolucion y cachear las cajas
+        if self._frame_i % 3 == 0:
+            scale = 640.0 / frame.shape[1] if frame.shape[1] > 640 else 1.0
+            small = cv2.resize(frame, None, fx=scale, fy=scale) if scale < 1 else frame
+            rects, _ = self._ensure_hog().detectMultiScale(
+                small, winStride=(8, 8), padding=(8, 8), scale=1.05)
+            self._person_boxes = [(int(x / scale), int(y / scale),
+                                   int(w / scale), int(h / scale)) for (x, y, w, h) in rects]
+        for (x, y, w, h) in self._person_boxes:
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 120), 2)
+            cv2.putText(frame, "persona", (x + 2, max(y - 6, 12)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 120), 2)
+        self.counts["personas"] = len(self._person_boxes)
+
+    def apply(self, frame):
+        if self.colors_on:
+            self._detect_colors(frame)
+        if self.people_on:
+            self._detect_people(frame)
+        return frame
+
+
 class Camera:
     def __init__(self, sensor_id=0, jpeg_quality=80, stabilize=False):
         self.sensor_id = sensor_id
@@ -126,6 +212,7 @@ class Camera:
         self.lock = threading.Lock()
         self.stabilize_enabled = stabilize
         self.stabilizer = Stabilizer() if _HAS_CV2 else None
+        self.vision = Vision() if _HAS_CV2 else None
         if _HAS_CV2:
             self._open()
 
@@ -135,6 +222,22 @@ class Camera:
         if self.stabilizer is not None and not self.stabilize_enabled:
             self.stabilizer.reset()
         return self.stabilize_enabled
+
+    def set_vision(self, colors=None, people=None):
+        """Enciende/apaga las capas de vision. Devuelve el estado resultante."""
+        if self.vision is None:
+            return {"colores": False, "personas": False, "disponible": False}
+        if colors is not None:
+            self.vision.colors_on = bool(colors)
+        if people is not None:
+            self.vision.people_on = bool(people)
+        return self.vision_status()
+
+    def vision_status(self):
+        if self.vision is None:
+            return {"colores": False, "personas": False, "disponible": False, "counts": {}}
+        return {"colores": self.vision.colors_on, "personas": self.vision.people_on,
+                "disponible": True, "counts": self.vision.counts}
 
     def _open(self):
         try:
@@ -169,6 +272,12 @@ class Camera:
                 except Exception as e:
                     print(f"[camera] EIS fallo, sigo sin estabilizar: {e}")
                     self.stabilize_enabled = False
+            if self.vision is not None and self.vision.active:
+                try:
+                    frame = self.vision.apply(frame)
+                except Exception as e:
+                    print(f"[camera] vision fallo, la desactivo: {e}")
+                    self.vision.colors_on = self.vision.people_on = False
             ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
             if ok:
                 yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"

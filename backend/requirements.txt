@@ -6,5 +6,6 @@ pyserial
 # NO instales opencv-python por pip en el Jetson: trae un build SIN GStreamer y
 # rompe el pipeline de la camara. En la PC (sin camara) no hace falta cv2.
 
-# Para mas adelante (LIDAR):
-# rplidar-roboticia
+# LIDAR (RPLIDAR C1): usa un driver NATIVO propio (lidar.py) que habla el
+# protocolo Slamtec por pyserial -> NO hace falta la libreria 'rplidar'
+# (era incompatible con el C1 y causaba el flapping del descriptor).

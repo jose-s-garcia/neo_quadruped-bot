@@ -40,67 +40,123 @@ function mountJoystick(zone) {
   joy.on("end", () => { clearInterval(iv); iv = null; vec = { x: 0, y: 0 }; api.stop(); });
 }
 
-/* ---------------- LIDAR (radar 2D en vivo) ---------------- */
-let _lidarWS = null;
-function mountLidar() {
-  const cv = document.getElementById("lidarCanvas");
-  if (!cv) return;
-  const ctx = cv.getContext("2d");
-  const W = cv.width, H = cv.height, cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 12;
+/* ---------------- LIDAR: radar + info + marcadores + retos ---------------- */
+let _lidarWS = null, _lidarLast = {}, _lidarMAX = 4000, _retosDone = {};
+let _lidarMarkers = [];
+try { _lidarMarkers = JSON.parse(localStorage.getItem("neo-lidar-markers") || "[]"); } catch {}
+const _saveMarkers = () => localStorage.setItem("neo-lidar-markers", JSON.stringify(_lidarMarkers));
+const NICE = [1000, 1500, 2000, 3000, 4000, 6000, 8000, 12000];
+
+function drawRadar(d) {
+  const cv = document.getElementById("lidarCanvas"); if (!cv) return;
+  const ctx = cv.getContext("2d"), W = cv.width, H = cv.height, cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 16;
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-
-  window.__lidarCapture = async () => {
-    const snap = await api.lidarCapture();
-    alert(`Captura: ${snap.object_count ?? 0} objetos` + (snap.saved ? `\nGuardada en ${snap.saved}` : ""));
-  };
-
-  const NICE = [1000, 1500, 2000, 3000, 4000, 6000, 8000, 12000];
-  const P2 = (ang, dist, MAX) => { const a = ang * Math.PI / 180, r = Math.min(R * dist / MAX, R);
-    return [cx + r * Math.sin(a), cy - r * Math.cos(a)]; };
-  function draw(d) {
-    // auto-escala: enfoca donde esta el ~90% de los puntos (no en 12 m fijos)
-    const ds = (d.points || []).map(p => p.dist).filter(x => x > 0).sort((a, b) => a - b);
-    const p90 = ds.length ? ds[Math.floor(ds.length * 0.9)] : 2000;
-    const maxObj = (d.objects || []).reduce((m, o) => Math.max(m, o.dist), 0);  // los objetos SIEMPRE deben caber (no clampearlos al borde)
-    const MAX = NICE.find(n => n >= Math.max(p90, maxObj) * 1.12) || 12000;
-    ctx.clearRect(0, 0, W, H);
-    ctx.strokeStyle = "rgba(45,212,238,.22)"; ctx.fillStyle = "rgba(45,212,238,.55)"; ctx.font = "10px monospace";
-    for (let k = 1; k <= 4; k++) {
-      const r = R * k / 4;
-      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
-      ctx.fillText((MAX / 1000 * k / 4).toFixed(MAX <= 2000 ? 1 : 0) + "m", cx + 3, cy - r + 12);
-    }
-    ctx.beginPath(); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.stroke();
-    ctx.fillStyle = "#2dd4ee"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI); ctx.fill();     // robot
-    ctx.fillStyle = "rgba(230,240,255,.6)";
-    for (const p of d.points || []) { if (p.dist > MAX) continue; const [x, y] = P2(p.angle, p.dist, MAX); ctx.fillRect(x, y, 2, 2); }
-    // cada objeto: su EXTENSION (cuerda entre extremos) + etiqueta de distancia
-    const objs = (d.objects || []).slice().sort((a, b) => a.dist - b.dist);
-    ctx.lineCap = "round";
-    for (const o of objs) {
-      const [x0, y0] = P2(o.a0, o.d0, MAX), [x1, y1] = P2(o.a1, o.d1, MAX);
-      ctx.strokeStyle = "#ff7a45"; ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-      const [x, y] = P2(o.angle, o.dist, MAX);
-      ctx.fillStyle = "#ffb08a"; ctx.font = "11px monospace";
-      ctx.fillText((o.dist / 1000).toFixed(2) + "m", x + 7, y + 3);
-    }
-    ctx.lineWidth = 1; ctx.lineCap = "butt";
-    set("l-count", objs.length);
-    set("l-near", objs.length ? (objs[0].dist / 1000).toFixed(2) + " m" : "—");
-    const fast = objs.reduce((m, o) => Math.abs(o.speed) > Math.abs(m) ? o.speed : m, 0);
-    set("l-speed", objs.length ? fast.toFixed(2) + " m/s" : "—");
-    const list = document.getElementById("l-list");
-    if (list) list.innerHTML = objs.slice(0, 6).map(o =>
-      `∡${o.angle}° · ${(o.dist / 1000).toFixed(2)}m · ⌀${o.size}mm · ${o.speed > 0 ? "+" : ""}${o.speed}m/s`).join("<br>") || "sin objetos";
-    if (!d.available) { ctx.fillStyle = "rgba(255,120,120,.85)"; ctx.font = "13px monospace";
-      ctx.fillText("LIDAR sin señal — revisa LIDAR_PORT", 18, H - 16); }
+  // auto-escala: enfoca donde esta el ~90% de los puntos, pero los objetos SIEMPRE caben
+  const ds = (d.points || []).map(p => p.dist).filter(x => x > 0).sort((a, b) => a - b);
+  const p90 = ds.length ? ds[Math.floor(ds.length * 0.9)] : 2000;
+  const maxObj = (d.objects || []).reduce((m, o) => Math.max(m, o.dist), 0);
+  const MAX = NICE.find(n => n >= Math.max(p90, maxObj) * 1.12) || 12000; _lidarMAX = MAX;
+  const P2 = (ang, dist) => { const a = ang * Math.PI / 180, r = Math.min(R * dist / MAX, R); return [cx + r * Math.sin(a), cy - r * Math.cos(a)]; };
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = "rgba(45,212,238,.18)"; ctx.fillStyle = "rgba(45,212,238,.5)"; ctx.font = "10px monospace";
+  for (let k = 1; k <= 4; k++) { const r = R * k / 4; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+    ctx.fillText((MAX / 1000 * k / 4).toFixed(1) + "m", cx + 3, cy - r + 12); }
+  ctx.strokeStyle = "rgba(45,212,238,.14)"; ctx.beginPath(); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.stroke();
+  ctx.fillStyle = "rgba(160,190,230,.55)"; ctx.font = "11px system-ui";
+  ctx.fillText("frente 0°", cx + 6, cy - R + 12); ctx.fillText("atrás", cx + 6, cy + R - 4);
+  ctx.fillText("der →", cx + R - 34, cy - 6); ctx.fillText("← izq", cx - R + 4, cy - 6);
+  // puntos coloreados por distancia (rojo=cerca, azul=lejos)
+  for (const p of d.points || []) { if (p.dist > MAX) continue; const [x, y] = P2(p.angle, p.dist);
+    ctx.fillStyle = `hsl(${Math.round(200 * p.dist / MAX)},85%,62%)`; ctx.fillRect(x, y, 2, 2); }
+  ctx.fillStyle = "#2dd4ee"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI); ctx.fill();   // robot
+  const objs = (d.objects || []).slice().sort((a, b) => a.dist - b.dist);
+  ctx.lineCap = "round";
+  for (const o of objs) {   // cada objeto: su extension (cuerda) + distancia
+    const [x0, y0] = P2(o.a0, o.d0), [x1, y1] = P2(o.a1, o.d1);
+    ctx.strokeStyle = "#ff7a45"; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    const [x, y] = P2(o.angle, o.dist); ctx.fillStyle = "#ffb08a"; ctx.font = "11px monospace"; ctx.fillText((o.dist / 1000).toFixed(2) + "m", x + 7, y + 3);
   }
+  ctx.lineWidth = 1; ctx.lineCap = "butt";
+  for (const m of _lidarMarkers) {   // marcadores del usuario (rombo + etiqueta)
+    const [x, y] = P2(m.angle, m.dist);
+    ctx.fillStyle = "#ffd54a"; ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x + 6, y); ctx.lineTo(x, y + 6); ctx.lineTo(x - 6, y); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#ffe9a3"; ctx.font = "11px system-ui"; ctx.fillText(m.label, x + 9, y + 4);
+  }
+  set("l-count", objs.length);
+  set("l-near", objs.length ? (objs[0].dist / 1000).toFixed(2) + " m" : "—");
+  const fast = objs.reduce((m, o) => Math.abs(o.speed) > Math.abs(m) ? o.speed : m, 0);
+  set("l-speed", objs.length ? fast.toFixed(2) + " m/s" : "—");
+  set("l-hz", d.scan_hz ? d.scan_hz + " Hz" : "—"); set("l-pts", d.points_per_scan || "—");
+  const inf = d.info || {}, he = d.health || {};
+  set("l-model", inf.modelo || "—"); set("l-fw", inf.firmware || "—"); set("l-health", he.estado || "—");
+  const list = document.getElementById("l-list");
+  if (list) list.innerHTML = objs.slice(0, 7).map(o =>
+    `∡${o.angle}° · ${(o.dist / 1000).toFixed(2)}m · ⌀${o.size}mm · ${o.speed > 0 ? "+" : ""}${o.speed}m/s`).join("<br>") || "sin objetos";
+  if (!d.available) { ctx.fillStyle = "rgba(255,120,120,.85)"; ctx.font = "13px monospace"; ctx.fillText("LIDAR sin señal — revisa LIDAR_PORT", 18, H - 16); }
+}
 
+function renderMarkers() {
+  const box = document.getElementById("l-markers"); if (!box) return;
+  box.innerHTML = _lidarMarkers.length ? _lidarMarkers.map((m, i) =>
+    `<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;align-items:center">
+       <span>◆ ${m.label} <span style="opacity:.6">${(m.dist / 1000).toFixed(2)}m ∡${m.angle}°</span></span>
+       <button class="btn" style="padding:2px 8px;font-size:11px" onclick="window.__lidarDelMarker(${i})">✕</button></div>`).join("")
+    : `<span style="opacity:.6">Toca el radar para marcar un objeto encontrado. Los marcadores se guardan en este navegador.</span>`;
+}
+window.__lidarDelMarker = (i) => { _lidarMarkers.splice(i, 1); _saveMarkers(); renderMarkers(); if (_lidarLast.points) drawRadar(_lidarLast); };
+window.__lidarClearMarkers = () => { if (confirm("¿Borrar todos los marcadores?")) { _lidarMarkers = []; _saveMarkers(); renderMarkers(); } };
+
+function mountLidarRadar() {
+  const cv = document.getElementById("lidarCanvas"); if (!cv) return;
+  window.__lidarCapture = async () => { const s = await api.lidarCapture(); alert(`Captura: ${s.object_count ?? 0} objetos` + (s.saved ? `\nGuardada en ${s.saved}` : "")); };
+  cv.onclick = (e) => {   // click/tap -> convierte a coordenadas polares y crea un marcador
+    const r = cv.getBoundingClientRect();
+    const x = (e.clientX - r.left) * cv.width / r.width - cv.width / 2;
+    const y = (e.clientY - r.top) * cv.height / r.height - cv.height / 2;
+    const R = Math.min(cv.width, cv.height) / 2 - 16, dist = Math.hypot(x, y) / R * _lidarMAX;
+    let ang = Math.atan2(x, -y) * 180 / Math.PI; if (ang < 0) ang += 360;
+    const def = "Objeto " + (_lidarMarkers.length + 1);
+    const label = prompt("Nombre del marcador:", def); if (label === null) return;
+    _lidarMarkers.push({ angle: +ang.toFixed(1), dist: Math.round(dist), label: label || def });
+    _saveMarkers(); renderMarkers(); drawRadar(_lidarLast);
+  };
+  renderMarkers();
+  drawRadar(_lidarLast);   // dibuja la rejilla aunque aún no haya datos ("sin señal")
+}
+
+const _RETOS = [
+  { id: "cerca",  txt: "Coloca un objeto a menos de 50 cm",            ok: d => (d.objects || []).some(o => o.dist < 500) },
+  { id: "tres",   txt: "Detecta 3 objetos a la vez",                   ok: d => (d.objects || []).length >= 3 },
+  { id: "grande", txt: "Encuentra un objeto ancho (más de 30 cm)",     ok: d => (d.objects || []).some(o => o.size > 300) },
+  { id: "mueve",  txt: "Haz que algo se acerque (velocidad negativa)", ok: d => (d.objects || []).some(o => o.speed < -0.3) },
+  { id: "lejos",  txt: "Detecta algo a más de 3 metros",               ok: d => (d.objects || []).some(o => o.dist > 3000) },
+];
+function updateRetos(d) {
+  const box = document.getElementById("l-retos"); if (!box) return;
+  for (const r of _RETOS) if (!_retosDone[r.id] && r.ok(d)) _retosDone[r.id] = true;
+  box.innerHTML = _RETOS.map(r => `<div class="metric"><span class="k">${_retosDone[r.id] ? "✅" : "⬜"} ${r.txt}</span><span class="v">${_retosDone[r.id] ? "¡logrado!" : "…"}</span></div>`).join("");
+}
+window.__retosReset = () => { _retosDone = {}; if (_lidarLast.points) updateRetos(_lidarLast); };
+
+function mountLidar() {
+  const tabs = document.getElementById("lidarTabs"), content = document.getElementById("lidarContent");
+  if (!tabs) return;
+  function show(tab) {
+    tabs.querySelectorAll("button").forEach(b => b.classList.toggle("accent", b.dataset.ltab === tab));
+    if (tab === "radar") { content.innerHTML = lidarRadarHTML(); mountLidarRadar(); }
+    else if (tab === "aprende") { content.innerHTML = lidarLearnHTML(); }
+    else { content.innerHTML = lidarRetosHTML(); updateRetos(_lidarLast); }   // muestra la lista aunque no haya datos aún
+  }
+  tabs.querySelectorAll("button").forEach(b => b.onclick = () => show(b.dataset.ltab));
+  show("radar");
   if (_lidarWS) { try { _lidarWS.close(); } catch {} }
   const proto = location.protocol === "https:" ? "wss" : "ws";
   _lidarWS = new WebSocket(`${proto}://${location.host}/ws/lidar`);
-  _lidarWS.onmessage = (ev) => { try { draw(JSON.parse(ev.data)); } catch {} };
+  _lidarWS.onmessage = (ev) => {
+    try { _lidarLast = JSON.parse(ev.data); } catch { return; }
+    if (document.getElementById("lidarCanvas")) drawRadar(_lidarLast);
+    if (document.getElementById("l-retos")) updateRetos(_lidarLast);
+  };
 }
 
 /* ---------------- Geometría IK: pestañas + solver compartido ---------------- */
@@ -122,7 +178,7 @@ function mountIK() {
     if (_ikRAF) { cancelAnimationFrame(_ikRAF); _ikRAF = null; }
     tabs.querySelectorAll("button").forEach(b => b.classList.toggle("accent", b.dataset.tab === tab));
     if (tab === "interactivo") { content.innerHTML = ikInteractiveHTML(); mountIKInteractive(); }
-    else { const live = tab === "envivo"; content.innerHTML = ikQuadHTML(live); mountIKQuad(live); }
+    else { const live = tab === "envivo"; content.innerHTML = gaitsHTML(live); mountGaits(live); }
   }
   tabs.querySelectorAll("button").forEach(b => b.onclick = () => show(b.dataset.tab));
   show("interactivo");
@@ -143,73 +199,156 @@ function ikInteractiveHTML() {
     </div>`;
 }
 
-function ikQuadHTML(live) {
+/* Marchas del robot: 3 gaits x 4 vistas + diagrama de fase.
+   Cada gait define el desfase de cada pata en el ciclo y el "duty" (fraccion del
+   ciclo que la pata pasa APOYADA en el suelo). Con eso se ve por que unas marchas
+   son mas rapidas y otras mas estables. */
+const GAITS = {
+  trote:    { name: "Trote", duty: 0.5,  phases: { FL: 0, FR: 0.5, BL: 0.5, BR: 0 },
+              desc: "Patas en diagonal se mueven a la vez. Rápido y equilibrado — la marcha por defecto." },
+  lateral:  { name: "Lateral (paso)", duty: 0.5, phases: { FL: 0, BL: 0, FR: 0.5, BR: 0.5 },
+              desc: "Las dos patas del mismo lado a la vez. Se balancea de lado a lado." },
+  diagonal: { name: "Reptar (4 tiempos)", duty: 0.75, phases: { FL: 0, BR: 0.25, FR: 0.5, BL: 0.75 },
+              desc: "Una pata por vez; siempre hay 3 en el suelo. Lento pero el más estable." },
+};
+const LEGS = [
+  { id: "FL", lx: 90,  ly: 60,  name: "Del. izq." },
+  { id: "FR", lx: 90,  ly: -60, name: "Del. der." },
+  { id: "BL", lx: -90, ly: 60,  name: "Tras. izq." },
+  { id: "BR", lx: -90, ly: -60, name: "Tras. der." },
+];
+const IK_Z = 150, IK_STEP = 70, IK_LIFT = 38;   // altura de pie, largo de paso, alto de vuelo (mm)
+
+function legPhase(G, id, phase) { let p = (phase + G.phases[id]) % 1; return p < 0 ? p + 1 : p; }
+function footFrom(G, id, phase, mode) {          // -> {x fore-aft mm, lift mm}
+  if (mode !== "walk") return { x: 0, lift: 0 };
+  const p = legPhase(G, id, phase);
+  if (p < G.duty) { const u = p / G.duty; return { x: IK_STEP * (0.5 - u), lift: 0 }; }   // apoyo: va hacia atras
+  const u = (p - G.duty) / (1 - G.duty); return { x: IK_STEP * (u - 0.5), lift: IK_LIFT * Math.sin(Math.PI * u) }; // vuelo
+}
+const _seg = (ctx, ax, ay, bx, by, c, w) => { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); };
+const _dot = (ctx, x, y, c, r) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill(); };
+const _cap = (ctx, txt) => { ctx.fillStyle = "rgba(45,212,238,.9)"; ctx.font = "12px system-ui"; ctx.fillText(txt, 14, 22); };
+
+function drawSide(ctx, W, H, G, phase, mode) {   // perfil: IK completa (cadera-rodilla-pie)
+  const sc = 1.0, cx = W / 2, hipY = 100;
+  _seg(ctx, 40, hipY + IK_Z + 8, W - 40, hipY + IK_Z + 8, "rgba(255,255,255,.08)", 1);   // suelo
+  _seg(ctx, cx - 90 * sc, hipY, cx + 90 * sc, hipY, "#8aa0c8", 16);                        // cuerpo
+  for (const [id, faded] of [["FL", 1], ["BL", 1], ["FR", 0], ["BR", 0]]) {
+    const leg = LEGS.find(l => l.id === id), hipx = cx + leg.lx * sc;
+    const f = footFrom(G, id, phase, mode), sol = ikSolve(f.x, IK_Z - f.lift);
+    if (!sol) continue;
+    const kx = hipx + Math.sin(sol.femurDir) * IK_F * sc, ky = hipY + Math.cos(sol.femurDir) * IK_F * sc;
+    const fx = hipx + f.x * sc, fy = hipY + (IK_Z - f.lift) * sc;
+    _seg(ctx, hipx, hipY, kx, ky, faded ? "rgba(45,212,238,.25)" : "#2dd4ee", 6);
+    _seg(ctx, kx, ky, fx, fy, faded ? "rgba(124,140,255,.25)" : "#7c8cff", 6);
+    _dot(ctx, hipx, hipY, "#fff", 3);
+    _dot(ctx, fx, fy, f.lift > 1 ? "#ff7a45" : (faded ? "rgba(230,240,255,.4)" : "#e6f0ff"), 5);
+  }
+  _cap(ctx, "VISTA LATERAL (perfil) · → adelante · patas derechas resaltadas");
+}
+function drawTop(ctx, W, H, G, phase, mode) {    // superior: coordinacion de las 4 patas
+  const sc = 1.4, cx = W / 2, cy = 165;
+  const S = (x, y) => [cx - y * sc, cy - x * sc];
+  ctx.fillStyle = "rgba(138,160,200,.15)"; ctx.strokeStyle = "#8aa0c8"; ctx.lineWidth = 2;
+  ctx.beginPath(); [[90, 60], [90, -60], [-90, -60], [-90, 60]].forEach((p, i) => { const [x, y] = S(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath(); ctx.fill(); ctx.stroke();
+  _seg(ctx, cx, cy - 12, cx, cy - 150, "rgba(45,212,238,.4)", 2); _dot(ctx, cx, cy - 150, "#2dd4ee", 3);  // flecha adelante
+  for (const leg of LEGS) {
+    const f = footFrom(G, leg.id, phase, mode);
+    const [hx, hy] = S(leg.lx, leg.ly), [sx, sy] = S(leg.lx + f.x, leg.ly), swing = f.lift > 1;
+    _seg(ctx, hx, hy, sx, sy, "rgba(255,255,255,.15)", 2);
+    _dot(ctx, sx, sy, swing ? "#ff7a45" : "#2dd4ee", swing ? 5 + f.lift * 0.08 : 6);
+    if (swing) { ctx.strokeStyle = "#ff7a45"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(sx, sy, 10, 0, 2 * Math.PI); ctx.stroke(); }
+  }
+  _cap(ctx, "VISTA SUPERIOR · azul = apoyo · naranja = vuelo (levantada)");
+}
+function drawFront(ctx, W, H, G, phase, mode) {  // frontal: par delantero, se ve el levante
+  const sc = 1.5, cx = W / 2, hipY = 90;
+  _seg(ctx, cx - 60 * sc, hipY, cx + 60 * sc, hipY, "#8aa0c8", 16);
+  for (const id of ["FL", "FR"]) {
+    const leg = LEGS.find(l => l.id === id), hipx = cx - leg.ly * sc, f = footFrom(G, id, phase, mode);
+    const kx = hipx + (leg.ly > 0 ? -7 : 7), ky = hipY + IK_Z * 0.5 * sc, fy = hipY + (IK_Z - f.lift) * sc;
+    _seg(ctx, hipx, hipY, kx, ky, "#2dd4ee", 6); _seg(ctx, kx, ky, hipx, fy, "#7c8cff", 6);
+    _dot(ctx, hipx, hipY, "#fff", 3); _dot(ctx, hipx, fy, f.lift > 1 ? "#ff7a45" : "#e6f0ff", 5);
+  }
+  _cap(ctx, "VISTA FRONTAL · patas delanteras");
+}
+function drawIso(ctx, W, H, G, phase, mode) {    // isometrica: pseudo-3D
+  const sc = 1.0, cx = W / 2, cy = 140;
+  const P = (x, y, z) => [cx + (x - y) * 0.6 * sc, cy - (x + y) * 0.3 * sc + z * 0.55 * sc];
+  ctx.fillStyle = "rgba(138,160,200,.18)"; ctx.strokeStyle = "#8aa0c8"; ctx.lineWidth = 2;
+  ctx.beginPath(); [[90, 60], [90, -60], [-90, -60], [-90, 60]].forEach((c, i) => { const [x, y] = P(c[0], c[1], 0); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath(); ctx.fill(); ctx.stroke();
+  for (const leg of LEGS) {
+    const f = footFrom(G, leg.id, phase, mode);
+    const [hx, hy] = P(leg.lx, leg.ly, 0), [fx, fy] = P(leg.lx + f.x, leg.ly, IK_Z - f.lift);
+    _seg(ctx, hx, hy, fx, fy, "#2dd4ee", 5); _dot(ctx, hx, hy, "#fff", 3);
+    _dot(ctx, fx, fy, f.lift > 1 ? "#ff7a45" : "#e6f0ff", 5);
+  }
+  _cap(ctx, "VISTA ISOMÉTRICA (3D)");
+}
+function drawPhaseDiagram(ctx, W, H, G, phase, mode) {
+  const x0 = 78, x1 = W - 20, y0 = H - 92, rowH = 16, gap = 5, N = 120;
+  ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.font = "12px system-ui";
+  ctx.fillText("Diagrama de fase — cuándo cada pata pisa (apoyo) o vuela", x0, y0 - 8);
+  ["FL", "FR", "BL", "BR"].forEach((id, i) => {
+    const y = y0 + i * (rowH + gap);
+    ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.font = "11px monospace";
+    ctx.fillText(LEGS.find(l => l.id === id).name, 4, y + rowH - 3);
+    ctx.fillStyle = "rgba(124,140,255,.15)"; ctx.fillRect(x0, y, x1 - x0, rowH);   // fondo = vuelo
+    ctx.fillStyle = "rgba(45,212,238,.55)";                                        // barras = apoyo
+    for (let k = 0; k < N; k++) {
+      const t = k / N, p = (t + G.phases[id]) % 1;
+      if (mode !== "walk" || p < G.duty) ctx.fillRect(x0 + t * (x1 - x0), y, (x1 - x0) / N + 1, rowH);
+    }
+  });
+  const px = x0 + (mode === "walk" ? phase : 0) * (x1 - x0);   // cabezal
+  ctx.strokeStyle = "#ff7a45"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(px, y0 - 2); ctx.lineTo(px, y0 + 4 * (rowH + gap)); ctx.stroke();
+}
+
+function gaitsHTML(live) {
+  const gaitBtns = live ? "" : `<div class="btn-row" id="gaitSel" style="gap:6px;margin-bottom:8px;flex-wrap:wrap">
+      <button class="btn accent" data-gait="trote">Trote</button>
+      <button class="btn" data-gait="lateral">Lateral</button>
+      <button class="btn" data-gait="diagonal">Reptar</button></div>`;
   return `
     <div class="panel">
-      <h3>${live ? "Ángulos de las 4 patas · en vivo" : "Animaciones pre-cargadas"}</h3>
-      ${live ? "" : `<div class="btn-row" id="ikAnimBtns" style="margin-bottom:12px">
-        <button class="btn accent" data-anim="walk">▶ Caminar</button>
-        <button class="btn" data-anim="stand">Stand</button>
-        <button class="btn" data-anim="stop">Stop</button></div>`}
-      <canvas id="ikQuad" width="640" height="440" style="width:100%;max-width:640px;background:#0a0e14;border-radius:12px;display:block;margin:0 auto"></canvas>
-      <p style="opacity:.7;font-size:12px;margin-top:8px">${live ? "Refleja el modo actual del robot (stand/caminar), resuelto con el IK en vivo." : "Ciclo de patas ilustrativo (trote). No requiere el robot conectado."}</p>
+      <h3>${live ? "Marcha del robot · en vivo" : "Marchas (gaits) del robot"}</h3>
+      <p style="opacity:.7;font-size:13px;margin:-2px 0 10px">${live
+        ? "Refleja stand / caminar del robot. El firmware aún no envía los ángulos reales, así que es una representación fiel del patrón de marcha."
+        : "Elige una marcha y un punto de vista. El diagrama de abajo muestra la coordinación de las 4 patas."}</p>
+      ${gaitBtns}
+      <div class="btn-row" id="viewSel" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">
+        <button class="btn accent" data-view3d="side">Lateral</button>
+        <button class="btn" data-view3d="top">Superior</button>
+        <button class="btn" data-view3d="front">Frontal</button>
+        <button class="btn" data-view3d="iso">Isométrica</button>
+      </div>
+      <canvas id="gaitCv" width="640" height="470" style="width:100%;max-width:640px;background:#0a0e14;border-radius:12px;display:block;margin:0 auto"></canvas>
+      <div id="gaitInfo" style="opacity:.85;font-size:13px;margin-top:8px"></div>
     </div>`;
 }
 
-function mountIKQuad(isLive) {
-  const cv = document.getElementById("ikQuad");
+function mountGaits(live) {
+  const cv = document.getElementById("gaitCv");
   if (!cv) return;
-  const ctx = cv.getContext("2d");
-  const W = cv.width, H = cv.height, SCALE = 0.9;
-  const cells = [
-    { name: "Pata 1 · del. der.", hx: W * 0.27, hy: 58, ph: 0.0 },
-    { name: "Pata 4 · del. izq.", hx: W * 0.73, hy: 58, ph: 0.5 },
-    { name: "Pata 2 · tras. der.", hx: W * 0.27, hy: 272, ph: 0.5 },
-    { name: "Pata 3 · tras. izq.", hx: W * 0.73, hy: 272, ph: 0.0 },
-  ];
-  let mode = "stand", t0 = performance.now();
-
-  function footFor(m, phase) {                 // pose objetivo del pie (mm): x fore-aft, z abajo
-    if (m === "stand") return { x: 12, z: 150 };
-    if (m === "stop") return { x: 10, z: 120 };
-    const S = 45, LIFT = 30, Z = 150;          // walk (trote): apoyo atras, vuelo levanta y adelanta
-    if (phase < 0.5) { const u = phase / 0.5; return { x: S * (0.5 - u), z: Z }; }
-    const u = (phase - 0.5) / 0.5; return { x: S * (u - 0.5), z: Z - LIFT * Math.sin(Math.PI * u) };
-  }
-  const seg = (ax, ay, bx, by, c, w) => { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); };
-  const dot = (x, y, c, r) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill(); };
-
-  function drawLeg(cell, phase) {
-    const f = footFor(mode, phase), sol = ikSolve(f.x, f.z);
-    const hx = cell.hx, hy = cell.hy, fx = hx + f.x * SCALE, fy = hy + f.z * SCALE;
-    ctx.fillStyle = "rgba(255,255,255,.6)"; ctx.font = "12px system-ui";
-    ctx.fillText(cell.name, hx - 60, hy - 34);
-    ctx.strokeStyle = "rgba(255,255,255,.08)"; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(hx - 70, hy + 150 * SCALE); ctx.lineTo(hx + 70, hy + 150 * SCALE); ctx.stroke();
-    if (sol) {
-      const kx = hx + Math.sin(sol.femurDir) * IK_F * SCALE, ky = hy + Math.cos(sol.femurDir) * IK_F * SCALE;
-      seg(hx, hy, kx, ky, "#2dd4ee", 5); seg(kx, ky, fx, fy, "#7c8cff", 5);
-      dot(hx, hy, "#fff", 4); dot(kx, ky, "#fff", 3); dot(fx, fy, "#ff7a45", 5);
-      ctx.fillStyle = "rgba(200,220,255,.8)"; ctx.font = "11px monospace";
-      ctx.fillText(`F ${(sol.femurDir * 180 / Math.PI).toFixed(0)}°  R ${(sol.kneeAng * 180 / Math.PI).toFixed(0)}°`, hx - 60, hy + 150 * SCALE + 18);
-    }
-  }
+  const ctx = cv.getContext("2d"), W = cv.width, H = cv.height, info = document.getElementById("gaitInfo");
+  let gait = "trote", view = "side", t0 = performance.now();
+  const sel = (id, attr, set) => { const box = document.getElementById(id); if (box) box.querySelectorAll(`[data-${attr}]`).forEach(b => b.onclick = () => { set(b.dataset[attr]); box.querySelectorAll(`[data-${attr}]`).forEach(x => x.classList.toggle("accent", x === b)); }); };
+  sel("gaitSel", "gait", v => { gait = v; t0 = performance.now(); });
+  sel("viewSel", "view3d", v => view = v);
 
   function loop(now) {
-    if (isLive) { const st = window.__lastState || {}; mode = st.walking ? "walk" : st.stand ? "stand" : "stop"; }
-    const t = (now - t0) / 1000;
+    let mode = "walk";
+    if (live) { const st = window.__lastState || {}; mode = st.walking ? "walk" : st.stand ? "stand" : "idle"; }
+    const g = (now - t0) / 1000 * 0.75, phase = mode === "walk" ? (g % 1) : 0;
+    const G = GAITS[live ? "trote" : gait];
     ctx.clearRect(0, 0, W, H);
-    for (const cell of cells) drawLeg(cell, mode === "walk" ? ((t * 1.3 + cell.ph) % 1) : 0);
-    ctx.fillStyle = "rgba(45,212,238,.9)"; ctx.font = "13px system-ui";
-    ctx.fillText("modo: " + mode.toUpperCase(), 14, H - 12);
+    ({ side: drawSide, top: drawTop, front: drawFront, iso: drawIso }[view])(ctx, W, H, G, phase, mode);
+    drawPhaseDiagram(ctx, W, H, G, phase, mode);
+    if (info) info.innerHTML = live
+      ? `<b>Modo:</b> ${mode.toUpperCase()} &nbsp;·&nbsp; patrón: Trote`
+      : `<b>${G.name}.</b> ${G.desc} &nbsp;·&nbsp; <span style="opacity:.6">duty ${Math.round(G.duty * 100)}% (tiempo apoyada)</span>`;
     _ikRAF = requestAnimationFrame(loop);
-  }
-  if (!isLive) {
-    const btns = document.getElementById("ikAnimBtns");
-    if (btns) btns.querySelectorAll("[data-anim]").forEach(b => b.onclick = () => {
-      mode = b.dataset.anim; t0 = performance.now();
-      btns.querySelectorAll("[data-anim]").forEach(x => x.classList.toggle("accent", x === b));
-    });
   }
   _ikRAF = requestAnimationFrame(loop);
 }
@@ -344,6 +483,108 @@ const dogSvg = `
     <circle class="eye" cx="170" cy="50" r="5"/>
   </svg>`;
 
+/* ---------------- LIDAR: HTML de cada pestaña ---------------- */
+function lidarRadarHTML() {
+  return `
+    <div class="panels">
+      <div class="panel tall"><h3>Radar en vivo</h3>
+        <canvas id="lidarCanvas" width="520" height="520" style="width:100%;max-width:520px;aspect-ratio:1;background:#0a0e14;border-radius:12px;display:block;margin:0 auto"></canvas>
+        <div class="btn-row" style="margin-top:12px;gap:8px;flex-wrap:wrap">
+          <button class="btn accent" onclick="window.__lidarCapture&&window.__lidarCapture()">📸 Captura</button>
+          <button class="btn" onclick="window.__lidarClearMarkers&&window.__lidarClearMarkers()">🗑 Borrar marcadores</button>
+        </div>
+        <p style="opacity:.7;font-size:12px;margin-top:8px">Toca el radar para <b>marcar</b> un objeto encontrado. Color de los puntos: rojo = cerca, azul = lejos.</p>
+      </div>
+      <div class="panel"><h3>Sensor</h3>
+        <div class="metric"><span class="k">Modelo</span><span class="v" id="l-model">—</span></div>
+        <div class="metric"><span class="k">Firmware</span><span class="v" id="l-fw">—</span></div>
+        <div class="metric"><span class="k">Salud</span><span class="v" id="l-health">—</span></div>
+        <div class="metric"><span class="k">Escaneo real</span><span class="v" id="l-hz">—</span></div>
+        <div class="metric"><span class="k">Puntos/vuelta</span><span class="v" id="l-pts">—</span></div>
+        <h3 style="margin-top:14px">Objetos</h3>
+        <div class="metric"><span class="k">Más cercano</span><span class="v" id="l-near">—</span></div>
+        <div class="metric"><span class="k">Detectados</span><span class="v" id="l-count">—</span></div>
+        <div class="metric"><span class="k">Vel. máx (radial)</span><span class="v" id="l-speed">—</span></div>
+        <div id="l-list" style="margin-top:8px;font-family:var(--mono);font-size:12px;opacity:.85">esperando escaneo…</div>
+        <h3 style="margin-top:14px">Marcadores</h3>
+        <div id="l-markers" style="font-size:13px"></div>
+      </div>
+    </div>`;
+}
+function lidarLearnHTML() {
+  return `
+    <div class="panel" style="line-height:1.65">
+      <h3>¿Qué es un LIDAR?</h3>
+      <p><b>LIDAR</b> = <i>Light Detection And Ranging</i>. Dispara un rayo láser y mide a qué distancia está lo que golpea. El RPLIDAR&nbsp;C1 <b>gira el láser 360°</b> unas <b>10 veces por segundo</b>, tomando ~500 medidas por vuelta.</p>
+      <h3>¿Cómo mide la distancia?</h3>
+      <p>El C1 usa <b>triangulación</b>: mira <i>en qué ángulo</i> vuelve el reflejo dentro del sensor. Muy inclinado → objeto cerca; casi recto → lejos. (Otros LIDAR miden el <i>tiempo</i> que tarda la luz en volver, "time of flight".)</p>
+      <h3>Coordenadas polares</h3>
+      <p>Cada medida es un par <b>(ángulo, distancia)</b>. Para dibujarlo pasamos a X/Y: <code>x = d·sin(θ)</code>, <code>y = d·cos(θ)</code>. El robot está en el centro y 0° es el frente.</p>
+      <h3>De puntos a objetos</h3>
+      <p>Los puntos forman una <b>nube</b>. Agrupamos los que están juntos (ángulo y distancia parecidos) en <b>objetos</b>, y de cada grupo sacamos su <b>tamaño</b> y su <b>distancia</b>.</p>
+      <h3>Velocidad</h3>
+      <p>Comparando un objeto entre dos vueltas medimos cuánto cambió su distancia: la <b>velocidad radial</b>. Negativa = se acerca; positiva = se aleja.</p>
+      <h3>¿Para qué sirve?</h3>
+      <p>Para <b>evitar obstáculos</b>, <b>medir espacios</b> y, más adelante, hacer <b>SLAM</b> (mapear el entorno mientras el robot se ubica en él).</p>
+      <div class="metric" style="margin-top:10px"><span class="k">Alcance</span><span class="v">12 m (blanco) / 6 m (negro)</span></div>
+      <div class="metric"><span class="k">Resolución</span><span class="v">0.72° · ~500 puntos/vuelta</span></div>
+      <div class="metric"><span class="k">Longitud de onda</span><span class="v">905 nm (infrarrojo)</span></div>
+    </div>`;
+}
+function lidarRetosHTML() {
+  return `
+    <div class="panel">
+      <h3>Retos con el LIDAR</h3>
+      <p style="opacity:.75;font-size:13px;margin-bottom:10px">Mueve objetos frente al robot y observa cómo reacciona el radar. Cada reto se marca solo cuando lo logras.</p>
+      <div id="l-retos"></div>
+      <div class="btn-row" style="margin-top:12px"><button class="btn" onclick="window.__retosReset&&window.__retosReset()">↺ Reiniciar retos</button></div>
+    </div>`;
+}
+
+/* ---------------- Visión: colores + personas ---------------- */
+let _visionIV = null;
+function visionHTML() {
+  return `
+    <div class="panels">
+      <div class="panel tall"><h3>Cámara con visión</h3>
+        <div class="cam">
+          <img src="/api/camera" alt="camara con visión"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+          <div style="display:none">${placeholder("Cámara sin señal", "Inicia el server en el Jetson con la cámara conectada.", "IMX477")}</div>
+        </div>
+        <div class="btn-row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <button class="btn" id="vColorBtn">🎨 Colores: OFF</button>
+          <button class="btn" id="vPersonBtn">🧍 Personas: OFF</button>
+        </div>
+        <div class="metric" style="margin-top:8px"><span class="k">Colores detectados</span><span class="v" id="v-colors">0</span></div>
+        <div class="metric"><span class="k">Personas detectadas</span><span class="v" id="v-people">0</span></div>
+      </div>
+      <div class="panel" style="line-height:1.65">
+        <h3>¿Cómo reconoce colores?</h3>
+        <p>La imagen se pasa a espacio <b>HSV</b> (Tono, Saturación, Valor). El <b>tono</b> es el color puro, así que separar "rojo" de "azul" es fácil aunque cambie la luz — mucho más estable que en RGB.</p>
+        <p>Marca cada zona con su nombre: rojo, naranja, amarillo, verde, azul y violeta. Las manchas muy pequeñas se ignoran (ruido).</p>
+        <h3>¿Cómo detecta personas?</h3>
+        <p>Usa <b>HOG + SVM</b> (Histogram of Oriented Gradients), un detector de <b>cuerpo completo</b> que ya trae OpenCV: mira la <i>silueta</i>, no la cara. Corre cada pocos cuadros para no frenar el video.</p>
+        <p style="opacity:.7;font-size:12px">Funciona mejor con la persona <b>de pie y completa</b> en el cuadro y con buena luz.</p>
+      </div>
+    </div>`;
+}
+function mountVision() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const cBtn = document.getElementById("vColorBtn"), pBtn = document.getElementById("vPersonBtn");
+  const paint = (st) => {
+    if (!st || st.disponible === false) return;
+    if (cBtn) { cBtn.textContent = "🎨 Colores: " + (st.colores ? "ON" : "OFF"); cBtn.classList.toggle("accent", !!st.colores); }
+    if (pBtn) { pBtn.textContent = "🧍 Personas: " + (st.personas ? "ON" : "OFF"); pBtn.classList.toggle("accent", !!st.personas); }
+    if (st.counts) { set("v-colors", st.counts.colores ?? 0); set("v-people", st.counts.personas ?? 0); }
+  };
+  if (cBtn) cBtn.onclick = async () => paint(await api.vision("color"));
+  if (pBtn) pBtn.onclick = async () => paint(await api.vision("person"));
+  api.visionStatus().then(paint);
+  if (_visionIV) clearInterval(_visionIV);
+  _visionIV = setInterval(() => api.visionStatus().then(paint), 1500);   // refresca los conteos
+}
+
 /* ---------------- vistas / modulos ---------------- */
 const views = {
   dashboard: () => head("Dashboard", "Control y telemetria en tiempo real") + `
@@ -390,32 +631,22 @@ const views = {
 
   "sec-blocks": () => head("Bloques + sensores", "Bucles, condicionales y LIDAR") +
     placeholder("Blockly avanzado", "Bloques con repetir/si-entonces y bloques de sensor (si obstáculo &lt; X → girar). Conecta lógica con el LIDAR.", "Blockly + LIDAR"),
-  "sec-lidar": () => head("Radar LIDAR", "RPLIDAR C1 · 360° · alcance 12 m") + `
-    <div class="panels">
-      <div class="panel tall"><h3>Radar en vivo</h3>
-        <canvas id="lidarCanvas" width="520" height="520"
-          style="width:100%;max-width:520px;aspect-ratio:1;background:#0a0e14;border-radius:12px;display:block;margin:0 auto"></canvas>
-        <div class="btn-row" style="margin-top:12px">
-          <button class="btn accent" onclick="window.__lidarCapture && window.__lidarCapture()">📸 Captura</button>
-        </div>
-      </div>
-      <div class="panel"><h3>Objetos detectados</h3>
-        <div class="metric"><span class="k">Más cercano</span><span class="v" id="l-near">—</span></div>
-        <div class="metric"><span class="k">Objetos</span><span class="v" id="l-count">—</span></div>
-        <div class="metric"><span class="k">Vel. máx (radial)</span><span class="v" id="l-speed">—</span></div>
-        <div id="l-list" style="margin-top:10px;font-family:var(--mono);font-size:12px;opacity:.85">esperando escaneo…</div>
-      </div>
-    </div>`,
-  "sec-ik": () => head("Geometría de las patas", "IK: interactivo, ángulos en vivo y animaciones") + `
+  "sec-lidar": () => head("Radar láser 360° (LIDAR)", "Mira alrededor del robot, detecta objetos y aprende cómo funciona") + `
+    <div class="btn-row" id="lidarTabs" style="margin-bottom:14px">
+      <button class="btn accent" data-ltab="radar">◎ Radar</button>
+      <button class="btn" data-ltab="aprende">📖 Aprende</button>
+      <button class="btn" data-ltab="retos">🎯 Retos</button>
+    </div>
+    <div id="lidarContent"></div>`,
+  "sec-ik": () => head("Cómo caminan las patas", "Geometría inversa (IK) y las marchas del robot, desde varios ángulos") + `
     <div class="btn-row" id="ikTabs" style="margin-bottom:14px">
-      <button class="btn accent" data-tab="interactivo">✋ Interactivo</button>
-      <button class="btn" data-tab="envivo">📡 Patas en vivo</button>
-      <button class="btn" data-tab="anim">▶ Animaciones</button>
+      <button class="btn accent" data-tab="interactivo">✋ Una pata (IK)</button>
+      <button class="btn" data-tab="anim">🐾 Marchas</button>
+      <button class="btn" data-tab="envivo">📡 En vivo</button>
     </div>
     <div id="ikContent"></div>`,
 
-  "sup-vision": () => head("Visión por computador", "OpenCV sobre la cámara") +
-    placeholder("Detección / seguimiento", "Tracking de color y detección de objetos; el robot sigue lo que ve.", "OpenCV · cámara"),
+  "sup-vision": () => head("Visión: colores y personas", "Reconoce colores y detecta personas con la cámara") + visionHTML(),
   "sup-slam": () => head("Mapeo SLAM", "Construye un mapa del entorno") +
     placeholder("Mapa 2D + navegación", "SLAM con el LIDAR: construye un mapa y navega evitando obstáculos.", "LIDAR · avanzado"),
   "sup-api": () => head("API de programación", "Controla el robot por código") + `
@@ -460,6 +691,7 @@ function render(view) {
   if (_lidarWS) { try { _lidarWS.close(); } catch {} _lidarWS = null; }  // cierra el WS del LIDAR al salir de la vista
   if (_devWS) { try { _devWS.close(); } catch {} _devWS = null; }        // cierra la consola serial al salir
   if (_ikRAF) { cancelAnimationFrame(_ikRAF); _ikRAF = null; }           // detiene la animacion IK al salir
+  if (_visionIV) { clearInterval(_visionIV); _visionIV = null; }         // detiene el sondeo de vision al salir
   root.innerHTML = (views[view] || views.dashboard)();
   // montar interacciones segun lo que exista en la vista
   if (root.querySelector("[data-dir]")) mountControlPad(root);
@@ -473,6 +705,7 @@ function render(view) {
   };
   if (view === "sec-lidar") setTimeout(mountLidar, 0);
   if (view === "sec-ik") setTimeout(mountIK, 0);
+  if (view === "sup-vision") setTimeout(mountVision, 0);
   if (view === "dev") setTimeout(mountDev, 0);
   if (view === "inicial-blocks") setTimeout(initBlocks, 0);  // Blockly tras render
 }
