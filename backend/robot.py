@@ -32,10 +32,23 @@ class Robot:
             time.sleep(2)  # abrir el puerto resetea el ESP32: esperar boot
             self.state["connected"] = True
             print(f"[robot] conectado a {self.port} @ {self.baud}")
+            return True
         except Exception as e:
             self.ser = None
             self.state["connected"] = False
             print(f"[robot] no se pudo abrir {self.port}: {e}  (la web igual carga)")
+            return False
+
+    def _drop(self):
+        """Marca el puerto como caido (el ESP32 se desconecto): fuerza reconexion."""
+        try:
+            with self.lock:
+                if self.ser:
+                    self.ser.close()
+        except Exception:
+            pass
+        self.ser = None
+        self.state["connected"] = False
 
     def _send(self, c):
         with self.lock:
@@ -53,7 +66,10 @@ class Robot:
         buf = ""
         while True:
             if not (self.ser and self.ser.is_open):
-                time.sleep(0.3); continue
+                # puerto caido (arranque sin ESP32, o se desconecto): reintentar
+                if not self.connect():
+                    time.sleep(2)
+                continue
             data = ""
             try:
                 with self.lock:
@@ -61,7 +77,9 @@ class Robot:
                     if n:
                         data = self.ser.read(n).decode(errors="replace")
             except Exception:
-                time.sleep(0.3); continue
+                # el ESP32 probablemente se desconecto (dmesg: status -19): reconectar
+                self._drop()
+                time.sleep(1); continue
             if not data:
                 time.sleep(0.03); continue   # nada que leer: cede CPU y suelta el lock
             buf += data
