@@ -19,6 +19,7 @@ import time
 LIDAR_PORT = os.environ.get("LIDAR_PORT", "/dev/ttyUSB1")
 LIDAR_BAUD = int(os.environ.get("LIDAR_BAUD", "460800"))
 MAX_RANGE_MM = 12000        # RPLIDAR C1: alcance 12 m
+MIN_RANGE_MM = int(os.environ.get("LIDAR_MIN_MM", "120"))  # ignora hits muy cercanos (el propio robot); subir si el LIDAR ve su chasis
 
 try:
     from rplidar import RPLidar
@@ -46,6 +47,8 @@ def _make_object(cluster):
         "dist": round(dists[n // 2]),              # mediana (robusta a ruido)
         "size": round(math.hypot(x1 - x0, y1 - y0)),  # tamano aprox en mm
         "width_deg": round(angs[-1] - angs[0], 1),
+        "a0": cluster[0]["angle"], "d0": cluster[0]["dist"],
+        "a1": cluster[-1]["angle"], "d1": cluster[-1]["dist"],
         "_n": n,
     }
 
@@ -102,7 +105,7 @@ class Lidar:
     def _process(self, scan):
         # scan: lista de (quality, angle_deg, distance_mm)
         pts = [{"angle": round(a, 1), "dist": round(d)}
-               for (_q, a, d) in scan if 0 < d <= MAX_RANGE_MM]
+               for (_q, a, d) in scan if MIN_RANGE_MM <= d <= MAX_RANGE_MM]
         objs = cluster_objects(pts)
         now = time.time()
         self._attach_velocity(objs, now)

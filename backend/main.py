@@ -137,6 +137,24 @@ def api_lidar_status():
 
 
 # ===========================================================================
+# Consola serial del ESP32 (modo desarrollador)
+# ===========================================================================
+@app.websocket("/ws/console")
+async def ws_console(ws: WebSocket):
+    await ws.accept()
+    last = 0
+    try:
+        while True:
+            rows = robot.log_since(last)
+            if rows:
+                last = rows[-1][0]
+                await ws.send_text(json.dumps({"lines": [l for _, l in rows]}))
+            await asyncio.sleep(0.15)
+    except WebSocketDisconnect:
+        pass
+
+
+# ===========================================================================
 # Servir el frontend (debe ir al final para no tapar las rutas /api)
 # ===========================================================================
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

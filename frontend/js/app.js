@@ -54,31 +54,38 @@ function mountLidar() {
     alert(`Captura: ${snap.object_count ?? 0} objetos` + (snap.saved ? `\nGuardada en ${snap.saved}` : ""));
   };
 
+  const NICE = [1000, 1500, 2000, 3000, 4000, 6000, 8000, 12000];
+  const P2 = (ang, dist, MAX) => { const a = ang * Math.PI / 180, r = Math.min(R * dist / MAX, R);
+    return [cx + r * Math.sin(a), cy - r * Math.cos(a)]; };
   function draw(d) {
-    const MAX = d.max_range || 12000;
+    // auto-escala: enfoca donde esta el ~90% de los puntos (no en 12 m fijos)
+    const ds = (d.points || []).map(p => p.dist).filter(x => x > 0).sort((a, b) => a - b);
+    const p90 = ds.length ? ds[Math.floor(ds.length * 0.9)] : 2000;
+    const maxObj = (d.objects || []).reduce((m, o) => Math.max(m, o.dist), 0);  // los objetos SIEMPRE deben caber (no clampearlos al borde)
+    const MAX = NICE.find(n => n >= Math.max(p90, maxObj) * 1.12) || 12000;
     ctx.clearRect(0, 0, W, H);
     ctx.strokeStyle = "rgba(45,212,238,.22)"; ctx.fillStyle = "rgba(45,212,238,.55)"; ctx.font = "10px monospace";
-    for (let m = 3; m <= 12; m += 3) {
-      const r = R * (m * 1000) / MAX;
+    for (let k = 1; k <= 4; k++) {
+      const r = R * k / 4;
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
-      ctx.fillText(m + "m", cx + 3, cy - r + 12);
+      ctx.fillText((MAX / 1000 * k / 4).toFixed(MAX <= 2000 ? 1 : 0) + "m", cx + 3, cy - r + 12);
     }
     ctx.beginPath(); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.stroke();
     ctx.fillStyle = "#2dd4ee"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI); ctx.fill();     // robot
-    ctx.fillStyle = "rgba(230,240,255,.5)";
-    for (const p of d.points || []) {
-      const a = p.angle * Math.PI / 180, r = R * p.dist / MAX;
-      ctx.fillRect(cx + r * Math.sin(a), cy - r * Math.cos(a), 2, 2);
-    }
+    ctx.fillStyle = "rgba(230,240,255,.6)";
+    for (const p of d.points || []) { if (p.dist > MAX) continue; const [x, y] = P2(p.angle, p.dist, MAX); ctx.fillRect(x, y, 2, 2); }
+    // cada objeto: su EXTENSION (cuerda entre extremos) + etiqueta de distancia
     const objs = (d.objects || []).slice().sort((a, b) => a.dist - b.dist);
-    ctx.strokeStyle = "#ff7a45"; ctx.fillStyle = "#ff7a45"; ctx.lineWidth = 2;
+    ctx.lineCap = "round";
     for (const o of objs) {
-      const a = o.angle * Math.PI / 180, r = R * o.dist / MAX;
-      const x = cx + r * Math.sin(a), y = cy - r * Math.cos(a);
-      ctx.beginPath(); ctx.arc(x, y, 6, 0, 2 * Math.PI); ctx.stroke();
-      ctx.fillText((o.dist / 1000).toFixed(2) + "m", x + 8, y + 3);
+      const [x0, y0] = P2(o.a0, o.d0, MAX), [x1, y1] = P2(o.a1, o.d1, MAX);
+      ctx.strokeStyle = "#ff7a45"; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      const [x, y] = P2(o.angle, o.dist, MAX);
+      ctx.fillStyle = "#ffb08a"; ctx.font = "11px monospace";
+      ctx.fillText((o.dist / 1000).toFixed(2) + "m", x + 7, y + 3);
     }
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1; ctx.lineCap = "butt";
     set("l-count", objs.length);
     set("l-near", objs.length ? (objs[0].dist / 1000).toFixed(2) + " m" : "—");
     const fast = objs.reduce((m, o) => Math.abs(o.speed) > Math.abs(m) ? o.speed : m, 0);
@@ -96,8 +103,119 @@ function mountLidar() {
   _lidarWS.onmessage = (ev) => { try { draw(JSON.parse(ev.data)); } catch {} };
 }
 
-/* ---------------- Geometría IK (plano fémur–tibia, interactivo) ---------------- */
+/* ---------------- Geometría IK: pestañas + solver compartido ---------------- */
+let _ikRAF = null;
+const IK_F = 100, IK_T = 115;   // mm (fémur, tibia)
+
+function ikSolve(dx, dy) {   // dx fore-aft, dy hacia abajo (mm) -> {femurDir, kneeAng, h} o null
+  const h = Math.hypot(dx, dy);
+  if (h > IK_F + IK_T || h < Math.abs(IK_F - IK_T)) return null;
+  const a = Math.acos((h * h + IK_F * IK_F - IK_T * IK_T) / (2 * h * IK_F));
+  return { femurDir: Math.atan2(dx, dy) - a, kneeAng: Math.acos((IK_F * IK_F + IK_T * IK_T - h * h) / (2 * IK_F * IK_T)), h };
+}
+
 function mountIK() {
+  const tabs = document.getElementById("ikTabs");
+  if (!tabs) return;
+  const content = document.getElementById("ikContent");
+  function show(tab) {
+    if (_ikRAF) { cancelAnimationFrame(_ikRAF); _ikRAF = null; }
+    tabs.querySelectorAll("button").forEach(b => b.classList.toggle("accent", b.dataset.tab === tab));
+    if (tab === "interactivo") { content.innerHTML = ikInteractiveHTML(); mountIKInteractive(); }
+    else { const live = tab === "envivo"; content.innerHTML = ikQuadHTML(live); mountIKQuad(live); }
+  }
+  tabs.querySelectorAll("button").forEach(b => b.onclick = () => show(b.dataset.tab));
+  show("interactivo");
+}
+
+function ikInteractiveHTML() {
+  return `
+    <div class="panels">
+      <div class="panel tall"><h3>Plano fémur–tibia</h3>
+        <canvas id="ikCanvas" width="520" height="420" style="width:100%;max-width:520px;background:#0a0e14;border-radius:12px;display:block;margin:0 auto;cursor:crosshair;touch-action:none"></canvas>
+        <p style="opacity:.7;font-size:13px;margin-top:8px">Arrastra el punto naranja (el pie). Ley de cosenos, igual que el firmware.</p></div>
+      <div class="panel"><h3>Ángulos calculados</h3>
+        <div class="metric"><span class="k">Fémur (desde vertical)</span><span class="v" id="ik-femur">—</span></div>
+        <div class="metric"><span class="k">Rodilla (fémur–tibia)</span><span class="v" id="ik-tibia">—</span></div>
+        <div class="metric"><span class="k">Alcance (h)</span><span class="v" id="ik-h">—</span></div>
+        <div class="metric"><span class="k">Estado</span><span class="v" id="ik-state">—</span></div>
+        <p style="opacity:.7;font-size:12px;margin-top:10px">Fuera de [15, 215] mm → sin solución (el <b>NaN</b> real).</p></div>
+    </div>`;
+}
+
+function ikQuadHTML(live) {
+  return `
+    <div class="panel">
+      <h3>${live ? "Ángulos de las 4 patas · en vivo" : "Animaciones pre-cargadas"}</h3>
+      ${live ? "" : `<div class="btn-row" id="ikAnimBtns" style="margin-bottom:12px">
+        <button class="btn accent" data-anim="walk">▶ Caminar</button>
+        <button class="btn" data-anim="stand">Stand</button>
+        <button class="btn" data-anim="stop">Stop</button></div>`}
+      <canvas id="ikQuad" width="640" height="440" style="width:100%;max-width:640px;background:#0a0e14;border-radius:12px;display:block;margin:0 auto"></canvas>
+      <p style="opacity:.7;font-size:12px;margin-top:8px">${live ? "Refleja el modo actual del robot (stand/caminar), resuelto con el IK en vivo." : "Ciclo de patas ilustrativo (trote). No requiere el robot conectado."}</p>
+    </div>`;
+}
+
+function mountIKQuad(isLive) {
+  const cv = document.getElementById("ikQuad");
+  if (!cv) return;
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height, SCALE = 0.9;
+  const cells = [
+    { name: "Pata 1 · del. der.", hx: W * 0.27, hy: 58, ph: 0.0 },
+    { name: "Pata 4 · del. izq.", hx: W * 0.73, hy: 58, ph: 0.5 },
+    { name: "Pata 2 · tras. der.", hx: W * 0.27, hy: 272, ph: 0.5 },
+    { name: "Pata 3 · tras. izq.", hx: W * 0.73, hy: 272, ph: 0.0 },
+  ];
+  let mode = "stand", t0 = performance.now();
+
+  function footFor(m, phase) {                 // pose objetivo del pie (mm): x fore-aft, z abajo
+    if (m === "stand") return { x: 12, z: 150 };
+    if (m === "stop") return { x: 10, z: 120 };
+    const S = 45, LIFT = 30, Z = 150;          // walk (trote): apoyo atras, vuelo levanta y adelanta
+    if (phase < 0.5) { const u = phase / 0.5; return { x: S * (0.5 - u), z: Z }; }
+    const u = (phase - 0.5) / 0.5; return { x: S * (u - 0.5), z: Z - LIFT * Math.sin(Math.PI * u) };
+  }
+  const seg = (ax, ay, bx, by, c, w) => { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); };
+  const dot = (x, y, c, r) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill(); };
+
+  function drawLeg(cell, phase) {
+    const f = footFor(mode, phase), sol = ikSolve(f.x, f.z);
+    const hx = cell.hx, hy = cell.hy, fx = hx + f.x * SCALE, fy = hy + f.z * SCALE;
+    ctx.fillStyle = "rgba(255,255,255,.6)"; ctx.font = "12px system-ui";
+    ctx.fillText(cell.name, hx - 60, hy - 34);
+    ctx.strokeStyle = "rgba(255,255,255,.08)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(hx - 70, hy + 150 * SCALE); ctx.lineTo(hx + 70, hy + 150 * SCALE); ctx.stroke();
+    if (sol) {
+      const kx = hx + Math.sin(sol.femurDir) * IK_F * SCALE, ky = hy + Math.cos(sol.femurDir) * IK_F * SCALE;
+      seg(hx, hy, kx, ky, "#2dd4ee", 5); seg(kx, ky, fx, fy, "#7c8cff", 5);
+      dot(hx, hy, "#fff", 4); dot(kx, ky, "#fff", 3); dot(fx, fy, "#ff7a45", 5);
+      ctx.fillStyle = "rgba(200,220,255,.8)"; ctx.font = "11px monospace";
+      ctx.fillText(`F ${(sol.femurDir * 180 / Math.PI).toFixed(0)}°  R ${(sol.kneeAng * 180 / Math.PI).toFixed(0)}°`, hx - 60, hy + 150 * SCALE + 18);
+    }
+  }
+
+  function loop(now) {
+    if (isLive) { const st = window.__lastState || {}; mode = st.walking ? "walk" : st.stand ? "stand" : "stop"; }
+    const t = (now - t0) / 1000;
+    ctx.clearRect(0, 0, W, H);
+    for (const cell of cells) drawLeg(cell, mode === "walk" ? ((t * 1.3 + cell.ph) % 1) : 0);
+    ctx.fillStyle = "rgba(45,212,238,.9)"; ctx.font = "13px system-ui";
+    ctx.fillText("modo: " + mode.toUpperCase(), 14, H - 12);
+    _ikRAF = requestAnimationFrame(loop);
+  }
+  if (!isLive) {
+    const btns = document.getElementById("ikAnimBtns");
+    if (btns) btns.querySelectorAll("[data-anim]").forEach(b => b.onclick = () => {
+      mode = b.dataset.anim; t0 = performance.now();
+      btns.querySelectorAll("[data-anim]").forEach(x => x.classList.toggle("accent", x === b));
+    });
+  }
+  _ikRAF = requestAnimationFrame(loop);
+}
+
+/* ---------------- Geometría IK: pestaña interactiva (una pata) ---------------- */
+function mountIKInteractive() {
   const cv = document.getElementById("ikCanvas");
   if (!cv) return;
   const ctx = cv.getContext("2d");
@@ -148,6 +266,35 @@ function mountIK() {
 
 /* ---------------- bloques de UI ---------------- */
 const head = (t, s) => `<div class="view-head"><h1>${t}</h1><p>${s}</p></div>`;
+
+// modo desarrollador: fila de botones que envian teclas crudas (data-key evita lios de comillas)
+const devKeys = (pairs) => `<div class="btn-row" style="flex-wrap:wrap;gap:8px">` +
+  pairs.map(([label, key]) => `<button class="btn" data-key="${encodeURIComponent(key)}">${label}</button>`).join("") + `</div>`;
+
+let _devWS = null;
+function mountDev() {
+  const view = document.getElementById("view");
+  const con = document.getElementById("devConsole");
+  if (!con) return;
+  con.textContent = "";
+  view.querySelectorAll("[data-key]").forEach(b => b.onclick = () => api.raw(decodeURIComponent(b.dataset.key)));
+  window.__devRaw = () => { const i = document.getElementById("devRaw"); if (i && i.value) { api.raw(i.value); i.value = ""; i.focus(); } };
+  const inp = document.getElementById("devRaw");
+  if (inp) inp.onkeydown = (e) => { if (e.key === "Enter") window.__devRaw(); };
+  if (_devWS) { try { _devWS.close(); } catch {} }
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  _devWS = new WebSocket(`${proto}://${location.host}/ws/console`);
+  _devWS.onopen = () => { con.textContent = "— consola conectada —\n"; };
+  _devWS.onmessage = (ev) => {
+    try {
+      const { lines } = JSON.parse(ev.data);
+      for (const l of lines) con.textContent += l + "\n";
+      const arr = con.textContent.split("\n");
+      if (arr.length > 400) con.textContent = arr.slice(-400).join("\n");
+      con.scrollTop = con.scrollHeight;
+    } catch {}
+  };
+}
 
 const controlBar = `
   <div class="btn-row" style="margin-bottom:16px">
@@ -259,21 +406,13 @@ const views = {
         <div id="l-list" style="margin-top:10px;font-family:var(--mono);font-size:12px;opacity:.85">esperando escaneo…</div>
       </div>
     </div>`,
-  "sec-ik": () => head("Geometría de las patas", "IK interactivo: arrastra el pie y observa los ángulos") + `
-    <div class="panels">
-      <div class="panel tall"><h3>Plano fémur–tibia</h3>
-        <canvas id="ikCanvas" width="520" height="420"
-          style="width:100%;max-width:520px;background:#0a0e14;border-radius:12px;display:block;margin:0 auto;cursor:crosshair;touch-action:none"></canvas>
-        <p style="opacity:.7;font-size:13px;margin-top:8px">Arrastra el punto naranja (el pie). El IK resuelve los ángulos con <b>ley de cosenos</b>, igual que el firmware del robot.</p>
-      </div>
-      <div class="panel"><h3>Ángulos calculados</h3>
-        <div class="metric"><span class="k">Fémur (desde vertical)</span><span class="v" id="ik-femur">—</span></div>
-        <div class="metric"><span class="k">Rodilla (fémur–tibia)</span><span class="v" id="ik-tibia">—</span></div>
-        <div class="metric"><span class="k">Alcance (h)</span><span class="v" id="ik-h">—</span></div>
-        <div class="metric"><span class="k">Estado</span><span class="v" id="ik-state">—</span></div>
-        <p style="opacity:.7;font-size:12px;margin-top:10px">Fémur 100 mm · Tibia 115 mm. Fuera del rango [15, 215] mm no hay solución → ese es el <b>NaN</b> que veías en el robot real.</p>
-      </div>
-    </div>`,
+  "sec-ik": () => head("Geometría de las patas", "IK: interactivo, ángulos en vivo y animaciones") + `
+    <div class="btn-row" id="ikTabs" style="margin-bottom:14px">
+      <button class="btn accent" data-tab="interactivo">✋ Interactivo</button>
+      <button class="btn" data-tab="envivo">📡 Patas en vivo</button>
+      <button class="btn" data-tab="anim">▶ Animaciones</button>
+    </div>
+    <div id="ikContent"></div>`,
 
   "sup-vision": () => head("Visión por computador", "OpenCV sobre la cámara") +
     placeholder("Detección / seguimiento", "Tracking de color y detección de objetos; el robot sigue lo que ve.", "OpenCV · cámara"),
@@ -286,12 +425,41 @@ const views = {
         POST /api/stop · /api/raw/{key}<br>GET&nbsp; /api/state · WS /ws/telemetry
         <div class="tag">Docs interactivas en /docs</div>
       </div></div>`,
+
+  "dev": () => head("Modo desarrollador", "Todas las teclas del firmware + consola serial. Calibra desde el móvil.") + `
+    <div class="panels" style="display:block">
+      <div class="panel"><h3>Consola serial (ESP32)</h3>
+        <div id="devConsole" style="height:190px;overflow:auto;background:#05070b;border-radius:10px;padding:10px;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;color:#9fe8c0">conectando…</div>
+        <div class="btn-row" style="margin-top:8px;gap:8px">
+          <input id="devRaw" placeholder="tecla…" maxlength="4" style="width:120px;padding:9px;border-radius:8px;border:1px solid #24406a;background:#0a0e14;color:#e6f0ff;font-family:var(--mono)">
+          <button class="btn accent" onclick="window.__devRaw && window.__devRaw()">Enviar</button>
+          <button class="btn" onclick="var c=document.getElementById('devConsole');if(c)c.textContent=''">Limpiar consola</button>
+        </div>
+      </div>
+      <div class="panel"><h3>Normal · Movimiento y pose</h3>${devKeys([
+        ["Stand", " "], ["Walk", "1"], ["Gait", "2"], ["Balance", "3"], ["Flash", "4"],
+        ["▲ adelante", "w"], ["▼ atrás", "s"], ["◀ izq", "a"], ["▶ der", "d"],
+        ["Yaw −", "q"], ["Yaw +", "e"], ["Altura −", "z"], ["Altura +", "c"]])}</div>
+      <div class="panel"><h3>Normal · Marcha y datos</h3>${devKeys([
+        ["Vel −", "="], ["Vel +", "-"], ["Paso XY −", "["], ["Paso XY +", "]"],
+        ["Paso Z −", ";"], ["Paso Z +", "'"], ["Tip offset −", ","], ["Tip offset +", "."],
+        ["💾 Guardar", "9"], ["Cargar", "0"], ["Dump (h)", "h"]])}</div>
+      <div class="panel"><h3>Calibración <span style="opacity:.6;font-size:12px">— primero presiona <b>m</b></span></h3>${devKeys([
+        ["⚙ m (entrar/salir)", "m"],
+        ["Pata 1", "1"], ["Pata 2", "2"], ["Pata 3", "3"], ["Pata 4", "4"],
+        ["Coxa (7)", "7"], ["Fémur (8)", "8"], ["Tibia (9)", "9"],
+        ["Ajuste − (0.5°)", "-"], ["Ajuste + (0.5°)", "="],
+        ["Q-pose idle", "q"], ["W-pose ready", "w"], ["E recta", "e"],
+        ["Imprimir offsets", "p"], ["Guardar", "s"], ["Cargar", "l"], ["Limpiar", "c"]])}</div>
+    </div>`,
 };
 
 /* ---------------- router ---------------- */
 function render(view) {
   const root = document.getElementById("view");
   if (_lidarWS) { try { _lidarWS.close(); } catch {} _lidarWS = null; }  // cierra el WS del LIDAR al salir de la vista
+  if (_devWS) { try { _devWS.close(); } catch {} _devWS = null; }        // cierra la consola serial al salir
+  if (_ikRAF) { cancelAnimationFrame(_ikRAF); _ikRAF = null; }           // detiene la animacion IK al salir
   root.innerHTML = (views[view] || views.dashboard)();
   // montar interacciones segun lo que exista en la vista
   if (root.querySelector("[data-dir]")) mountControlPad(root);
@@ -305,6 +473,7 @@ function render(view) {
   };
   if (view === "sec-lidar") setTimeout(mountLidar, 0);
   if (view === "sec-ik") setTimeout(mountIK, 0);
+  if (view === "dev") setTimeout(mountDev, 0);
   if (view === "inicial-blocks") setTimeout(initBlocks, 0);  // Blockly tras render
 }
 
@@ -319,6 +488,7 @@ document.querySelectorAll(".nav-item").forEach(btn => {
 /* ---------------- telemetria global ---------------- */
 window.__api = api;  // para los onclick inline
 connectTelemetry((st) => {
+  window.__lastState = st;   // lo usa la vista IK "patas en vivo"
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
   // barra superior
   const chip = document.getElementById("connChip");

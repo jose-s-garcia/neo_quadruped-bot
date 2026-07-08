@@ -5,6 +5,7 @@ Encapsula el envio de comandos (las mismas teclas que el firmware ya entiende).
 import os
 import threading
 import time
+from collections import deque
 
 import serial
 
@@ -19,7 +20,10 @@ class Robot:
         self.lock = threading.Lock()
         self.state = {"connected": False, "stand": False, "walking": False,
                       "pitch": 1500, "roll": 1500}
+        self.log = deque(maxlen=600)   # salida serial del ESP32 (para la consola web)
+        self._seq = 0
         self.connect()
+        threading.Thread(target=self._reader, daemon=True).start()
 
     # -- conexion --------------------------------------------------------
     def connect(self):
@@ -40,6 +44,30 @@ class Robot:
                     self.ser.write(c.encode())
                 except Exception as e:
                     print(f"[robot] error write: {e}")
+
+    def _reader(self):
+        """Lee la salida serial del ESP32 (offsets, dumps, logs) para la consola web."""
+        buf = ""
+        while True:
+            if not (self.ser and self.ser.is_open):
+                time.sleep(0.5); continue
+            try:
+                data = self.ser.read(self.ser.in_waiting or 1).decode(errors="replace")
+            except Exception:
+                time.sleep(0.3); continue
+            if not data:
+                continue
+            buf += data
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                line = line.rstrip("\r")
+                if line:
+                    self._seq += 1
+                    self.log.append((self._seq, line))
+
+    def log_since(self, seq):
+        """Lineas con secuencia > seq (para el stream incremental de la consola)."""
+        return [(s, l) for (s, l) in list(self.log) if s > seq]
 
     # -- comandos de alto nivel -----------------------------------------
     def stand(self):
