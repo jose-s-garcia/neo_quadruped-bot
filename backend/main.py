@@ -99,9 +99,15 @@ def api_camera():
                              media_type="multipart/x-mixed-replace; boundary=frame")
 
 
+@app.post("/api/camera/stabilize", tags=["sensores"])
+def api_camera_stabilize():
+    """Alterna el EIS (estabilizacion digital de imagen) de la camara."""
+    return {"ok": True, "stabilize": camera.set_stabilize(not camera.stabilize_enabled)}
+
+
 @app.get("/api/camera/status", tags=["sensores"])
 def api_camera_status():
-    return {"available": camera.available}
+    return {"available": camera.available, "stabilize": camera.stabilize_enabled}
 
 
 # Pendiente:

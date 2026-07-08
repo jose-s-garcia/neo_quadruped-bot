@@ -9,6 +9,7 @@ export const api = {
   move:   (dir)     => post(`/api/move/${dir}`),
   stop:   ()        => post("/api/stop"),
   raw:    (key)     => post(`/api/raw/${encodeURIComponent(key)}`),
+  stabilize: ()     => post("/api/camera/stabilize"),
   state:  ()        => fetch("/api/state").then(r => r.json()).catch(() => ({})),
 };
 

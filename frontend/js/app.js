@@ -67,6 +67,10 @@ const cameraView = `
     <img src="/api/camera" alt="camara en vivo"
          onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
     <div style="display:none">${placeholder("Cámara sin señal", "Inicia el server en el Jetson con la cámara conectada.", "IMX477")}</div>
+    <button class="btn eis-btn" style="margin-top:8px;width:100%" title="Estabilización digital de imagen (EIS)"
+            onclick="window.__api.stabilize().then(r=>{this.textContent='🎥 Estabilizar: '+(r.stabilize?'ON':'OFF');this.classList.toggle('accent',!!r.stabilize)})">
+      🎥 Estabilizar: OFF
+    </button>
   </div>`;
 
 // avatar minimalista de NEO (perro robot) que reacciona a las acciones
