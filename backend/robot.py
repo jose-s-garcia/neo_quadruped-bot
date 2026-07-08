@@ -29,7 +29,23 @@ class Robot:
     def connect(self):
         try:
             self.ser = serial.Serial(self.port, self.baud, timeout=1)
-            time.sleep(2)  # abrir el puerto resetea el ESP32: esperar boot
+            # Un open crudo de pyserial suele dejar el ESP32 en reset o en bootloader
+            # (por eso responde con el Monitor de Arduino pero no con el script: el
+            # puerto abre y el write "sale", pero el firmware no corre). Forzamos un
+            # reset a modo RUN y liberamos las lineas:
+            #   DTR -> GPIO0 (alto = correr la app),  RTS -> EN (pulso low->high = reset)
+            try:
+                self.ser.dtr = False   # GPIO0 HIGH -> arranca la app, no el bootloader
+                self.ser.rts = True    # EN LOW  -> en reset
+                time.sleep(0.1)
+                self.ser.rts = False   # EN HIGH -> corre el firmware
+            except Exception:
+                pass
+            time.sleep(2)              # esperar boot del ESP32
+            try:
+                self.ser.reset_input_buffer()   # descartar el ruido del arranque
+            except Exception:
+                pass
             self.state["connected"] = True
             print(f"[robot] conectado a {self.port} @ {self.baud}")
             return True

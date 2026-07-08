@@ -87,9 +87,18 @@ class Lidar:
         while True:
             try:
                 self._dev = RPLidar(LIDAR_PORT, baudrate=LIDAR_BAUD, timeout=3)
+                # El C1 suele quedar escaneando de una sesion previa y deja bytes
+                # viejos en el buffer que desalinean el descriptor ("Descriptor length
+                # mismatch" / "too many values to unpack"). Un reset + espera lo realinea.
+                try:
+                    self._dev.reset()
+                    time.sleep(1.0)
+                except Exception:
+                    pass
                 self.available = True
                 print(f"[lidar] conectado en {LIDAR_PORT} @ {LIDAR_BAUD}")
-                for scan in self._dev.iter_scans(max_buf_meas=1500):
+                # buffer mas grande = menos avisos "Cleaning buffer" (benignos)
+                for scan in self._dev.iter_scans(max_buf_meas=3000):
                     self._process(scan)
             except Exception as e:
                 self.available = False
