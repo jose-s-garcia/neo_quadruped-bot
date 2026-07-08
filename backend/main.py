@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from robot import robot
 from camera import camera
+from lidar import lidar
 
 app = FastAPI(title="NEO Robot API", version="0.1.0",
               description="API de control del robot cuadrupedo NEO (educativo).")
@@ -110,8 +111,29 @@ def api_camera_status():
     return {"available": camera.available, "stabilize": camera.stabilize_enabled}
 
 
-# Pendiente:
-# @app.websocket("/ws/lidar")    -> puntos del RPLIDAR C1 en vivo
+# ===========================================================================
+# LIDAR (RPLIDAR C1: escaneo 2D, objetos, distancia, tamano, velocidad)
+# ===========================================================================
+@app.websocket("/ws/lidar")
+async def ws_lidar(ws: WebSocket):
+    await ws.accept()
+    try:
+        while True:
+            await ws.send_text(json.dumps(lidar.latest()))
+            await asyncio.sleep(0.1)   # ~10 Hz
+    except WebSocketDisconnect:
+        pass
+
+
+@app.post("/api/lidar/capture", tags=["sensores"])
+def api_lidar_capture():
+    """Guarda una instantanea del escaneo actual (puntos + objetos)."""
+    return lidar.capture()
+
+
+@app.get("/api/lidar/status", tags=["sensores"])
+def api_lidar_status():
+    return {"available": lidar.available, "objects": len(lidar.objects)}
 
 
 # ===========================================================================

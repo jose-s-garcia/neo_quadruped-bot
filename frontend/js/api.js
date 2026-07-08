@@ -10,6 +10,7 @@ export const api = {
   stop:   ()        => post("/api/stop"),
   raw:    (key)     => post(`/api/raw/${encodeURIComponent(key)}`),
   stabilize: ()     => post("/api/camera/stabilize"),
+  lidarCapture: ()  => post("/api/lidar/capture"),
   state:  ()        => fetch("/api/state").then(r => r.json()).catch(() => ({})),
 };
 
