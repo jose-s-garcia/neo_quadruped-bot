@@ -46,17 +46,24 @@ class Robot:
                     print(f"[robot] error write: {e}")
 
     def _reader(self):
-        """Lee la salida serial del ESP32 (offsets, dumps, logs) para la consola web."""
+        """Lee la salida serial del ESP32 SIN bloquear, usando el MISMO lock que _send.
+        pyserial no es thread-safe: leer y escribir el mismo puerto desde hilos distintos
+        a la vez rompe la comunicacion. Por eso solo leemos lo que ya esta en el buffer
+        (in_waiting), tomando el lock un instante, sin bloquear las escrituras."""
         buf = ""
         while True:
             if not (self.ser and self.ser.is_open):
-                time.sleep(0.5); continue
+                time.sleep(0.3); continue
+            data = ""
             try:
-                data = self.ser.read(self.ser.in_waiting or 1).decode(errors="replace")
+                with self.lock:
+                    n = self.ser.in_waiting
+                    if n:
+                        data = self.ser.read(n).decode(errors="replace")
             except Exception:
                 time.sleep(0.3); continue
             if not data:
-                continue
+                time.sleep(0.03); continue   # nada que leer: cede CPU y suelta el lock
             buf += data
             while "\n" in buf:
                 line, buf = buf.split("\n", 1)
