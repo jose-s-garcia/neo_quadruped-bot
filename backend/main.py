@@ -194,8 +194,16 @@ def api_say(text: str = ""):
 
 @app.get("/api/voice/status", tags=["voz"])
 def api_voice_status():
-    """¿Hay TTS disponible? Motor, idioma y última frase dicha."""
+    """¿Hay TTS/audio? Motor, reproductores, tarjeta y último error (para diagnóstico)."""
     return voice.status()
+
+
+@app.post("/api/bark", tags=["voz"])
+def api_bark():
+    """Reproduce el ladrido/gruñido por el ALTAVOZ del robot (Jetson)."""
+    base = os.path.join(FRONTEND_DIR, "assets")
+    wav, mp3 = os.path.join(base, "bark.wav"), os.path.join(base, "bark.mp3")
+    return voice.play(wav if os.path.exists(wav) else mp3)
 
 
 # ===========================================================================

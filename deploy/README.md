@@ -91,6 +91,43 @@ sudo systemctl edit neo-dashboard
 sudo systemctl restart neo-dashboard
 ```
 
+### No se escucha nada (voz / ladrido) — diagnóstico
+
+Sigue este orden:
+
+**1. ¿Reiniciaste el servicio después de instalar espeak-ng?** El motor se detecta
+al arrancar.
+```bash
+sudo systemctl restart neo-dashboard
+journalctl -u neo-dashboard | grep -i voice   # debe decir: [voice] TTS listo (motor: espeak-ng)
+```
+
+**2. ¿El Jetson emite audio siquiera?** Prueba desde una terminal SSH normal:
+```bash
+aplay -l                                   # ¿lista alguna tarjeta? Si no -> conecta un altavoz USB
+espeak-ng -v es "hola, soy NEO"            # ¿se oye?
+aplay /usr/share/sounds/alsa/Front_Center.wav
+alsamixer                                  # sube el volumen / quita el mute (tecla M)
+```
+- Si **NO** se oye ni en la terminal → es hardware/config: altavoz, tarjeta o mute.
+- Si **SÍ** se oye en la terminal pero **NO** desde el dashboard → es la sesión de
+  audio del servicio (paso 3).
+
+**3. Enrutar el audio del servicio.** La forma más fiable es **ALSA directo** a la
+tarjeta (mira el número en `aplay -l`, p. ej. `card 1`):
+```bash
+sudo systemctl edit neo-dashboard
+#   [Service]
+#   Environment=AUDIO_DEV=plughw:1,0
+sudo systemctl restart neo-dashboard
+```
+El estado en vivo (motor, reproductores, tarjeta, último error) está en
+`http://<IP>:8000/api/voice/status`.
+
+**Ladrido en el robot:** el instalador convierte `bark.mp3` → `bark.wav`
+(necesita `ffmpeg`; si no, `sudo apt install mpg123`). El botón "Ladrar" suena en
+el robot **y** en tu dispositivo.
+
 ¿Voz más natural? Se puede cambiar espeak-ng por **Piper** (TTS neural offline,
 con voces en español). Pídemelo y lo integro.
 

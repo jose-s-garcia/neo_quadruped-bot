@@ -19,6 +19,7 @@ export const api = {
   visionStatus: ()  => fetch("/api/vision/status").then(r => r.json()).catch(() => ({})),
   probe: (x, y)     => fetch(`/api/vision/probe?x=${x}&y=${y}`).then(r => r.json()).catch(() => ({ ok: false })),
   say: (text)       => post(`/api/say?text=${encodeURIComponent(text)}`),   // el robot habla
+  bark: ()          => post("/api/bark"),                                   // ladrido por el altavoz del robot
   voiceStatus: ()   => fetch("/api/voice/status").then(r => r.json()).catch(() => ({})),
   follow: ()        => post("/api/vision/follow"),                          // seguir a la persona
   narrate: ()       => post("/api/narrate"),                               // narrar lo que ve

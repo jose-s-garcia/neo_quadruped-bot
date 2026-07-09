@@ -40,13 +40,14 @@ function mountJoystick(zone) {
   joy.on("end", () => { clearInterval(iv); iv = null; vec = { x: 0, y: 0 }; api.stop(); });
 }
 
-/* ---------------- truco: ladrido / gruñido (suena en el dispositivo) ---------------- */
+/* ---------------- truco: ladrido / gruñido ---------------- */
 let _barkAudio = null;
 window.__bark = () => {
-  try {
+  api.bark();                                          // ladra por el ALTAVOZ del robot (Jetson)
+  try {                                                // y también en este dispositivo (respuesta inmediata)
     if (!_barkAudio) { _barkAudio = new Audio("assets/bark.mp3"); _barkAudio.preload = "auto"; }
     _barkAudio.currentTime = 0;
-    _barkAudio.play().catch(() => {});   // algunos navegadores exigen gesto del usuario (el click lo es)
+    _barkAudio.play().catch(() => {});
   } catch {}
   document.body.classList.add("barking");            // pulso rojo breve (perro enojado)
   clearTimeout(window.__barkT);

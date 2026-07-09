@@ -13,6 +13,13 @@ Environment=ROBOT_PORT=__ROBOT_PORT__
 Environment=LIDAR_PORT=__LIDAR_PORT__
 # La camara del robot va montada invertida -> giro 180.
 Environment=CAMERA_FLIP=2
+# Audio (voz / ladrido / chime): un servicio de sistema NO tiene sesion de audio.
+# Estas dos lineas lo enganchan al PulseAudio del usuario (necesita enable-linger,
+# que hace el instalador). Si en su lugar usas un altavoz USB por ALSA directo,
+# descomenta AUDIO_DEV con el numero de tarjeta de 'aplay -l'.
+Environment=XDG_RUNTIME_DIR=/run/user/__UID__
+Environment=PULSE_SERVER=unix:/run/user/__UID__/pulse/native
+#Environment=AUDIO_DEV=plughw:1,0
 # --- (opcional) actualizar el codigo antes de arrancar -----------------------
 # Desactivado a proposito. Si el Jetson enciende sin internet, o hay un commit a
 # medias, NO quieres que eso afecte el arranque (sobre todo el dia de la defensa).
