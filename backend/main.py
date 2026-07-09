@@ -18,6 +18,9 @@ from fastapi.staticfiles import StaticFiles
 from robot import robot
 from camera import camera
 from lidar import lidar
+from voice import voice
+from follow import follower
+from narrator import narrator
 
 app = FastAPI(title="NEO Robot API", version="0.1.0",
               description="API de control del robot cuadrupedo NEO (educativo).")
@@ -149,8 +152,50 @@ def api_vision(layer: str):
 
 @app.get("/api/vision/status", tags=["sensores"])
 def api_vision_status():
-    """Estado de las capas de vision + detecciones actuales."""
-    return camera.vision_status()
+    """Estado de las capas de vision + detecciones (con ID) + objetivo/seguimiento/narracion."""
+    s = camera.vision_status()
+    s["follow"] = follower.on
+    s["narrate"] = narrator.on
+    return s
+
+
+@app.post("/api/vision/target/cycle", tags=["sensores"])
+def api_target_cycle():
+    """Cambia el objetivo al siguiente objeto detectado (util con muchas personas)."""
+    return camera.cycle_target()
+
+
+@app.post("/api/vision/target", tags=["sensores"])
+def api_target_at(x: float = 0.5, y: float = 0.5):
+    """Elige objetivo tocando el video (coords normalizadas 0-1)."""
+    return camera.target_at(x, y)
+
+
+@app.post("/api/vision/follow", tags=["sensores"])
+def api_follow():
+    """Alterna el SEGUIMIENTO fisico: el robot se mueve para centrar al objetivo."""
+    return follower.set(not follower.on)
+
+
+@app.post("/api/narrate", tags=["voz"])
+def api_narrate():
+    """Alterna la narracion por voz de lo que el robot ve/detecta."""
+    return narrator.set(not narrator.on)
+
+
+# ===========================================================================
+# Voz (TTS): el robot habla por el altavoz del Jetson
+# ===========================================================================
+@app.post("/api/say", tags=["voz"])
+def api_say(text: str = ""):
+    """El robot dice 'text' en voz alta (TTS en el Jetson)."""
+    return voice.say(text)
+
+
+@app.get("/api/voice/status", tags=["voz"])
+def api_voice_status():
+    """¿Hay TTS disponible? Motor, idioma y última frase dicha."""
+    return voice.status()
 
 
 # ===========================================================================

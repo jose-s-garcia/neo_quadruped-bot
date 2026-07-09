@@ -1,0 +1,35 @@
+[Unit]
+Description=NEO Quadruped Dashboard (FastAPI/uvicorn) - Universidad Valle del Momboy
+# Arranca despues de que haya red y de que el demonio de la camara este listo.
+After=network-online.target nvargus-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__BACKEND__
+# Puertos serie por 'by-id' (estables aunque cambie el numero ttyUSB).
+Environment=ROBOT_PORT=__ROBOT_PORT__
+Environment=LIDAR_PORT=__LIDAR_PORT__
+# La camara del robot va montada invertida -> giro 180.
+Environment=CAMERA_FLIP=2
+# --- (opcional) actualizar el codigo antes de arrancar -----------------------
+# Desactivado a proposito. Si el Jetson enciende sin internet, o hay un commit a
+# medias, NO quieres que eso afecte el arranque (sobre todo el dia de la defensa).
+# Para activarlo: descomenta la linea de abajo y corre 'sudo systemctl daemon-reload'.
+#   '-'          -> si el pull falla, el servidor ARRANCA igual
+#   'timeout 25' -> un pull colgado (sin red) no congela el arranque
+#   '--ff-only'  -> nunca genera conflictos (si el repo diverge, no actualiza)
+#ExecStartPre=-/usr/bin/timeout 25 git -C __BACKEND__ pull --ff-only
+ExecStart=__PYTHON__ -m uvicorn main:app --host 0.0.0.0 --port 8000
+# Sonido de "servicio activo" cuando ya esta sirviendo. En segundo plano (&) para
+# NO retrasar el arranque; el '-' hace que un fallo de audio no afecte el servicio.
+ExecStartPost=-/bin/sh -c '__DEPLOY__/announce.sh &'
+Restart=on-failure
+RestartSec=3
+# Parada limpia (uvicorn apaga bien con SIGINT).
+KillSignal=SIGINT
+TimeoutStopSec=8
+
+[Install]
+WantedBy=multi-user.target

@@ -18,6 +18,12 @@ export const api = {
   visionFilter: (f) => post(`/api/vision/filter/${f}`),
   visionStatus: ()  => fetch("/api/vision/status").then(r => r.json()).catch(() => ({})),
   probe: (x, y)     => fetch(`/api/vision/probe?x=${x}&y=${y}`).then(r => r.json()).catch(() => ({ ok: false })),
+  say: (text)       => post(`/api/say?text=${encodeURIComponent(text)}`),   // el robot habla
+  voiceStatus: ()   => fetch("/api/voice/status").then(r => r.json()).catch(() => ({})),
+  follow: ()        => post("/api/vision/follow"),                          // seguir a la persona
+  narrate: ()       => post("/api/narrate"),                               // narrar lo que ve
+  cycleTarget: ()   => post("/api/vision/target/cycle"),
+  targetAt: (x, y)  => post(`/api/vision/target?x=${x}&y=${y}`),
   state:  ()        => fetch("/api/state").then(r => r.json()).catch(() => ({})),
 };
 

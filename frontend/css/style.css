@@ -4,42 +4,42 @@
 /* Colores institucionales UVM (Universidad Valle del Momboy):
    verde, rojo y blanco (bandera del estado Trujillo). */
 :root{
-  --bg:#070d0a;
-  --panel:#0e1a13;
-  --panel-2:#0a130d;
-  --line:rgba(34,197,94,.15);
-  --line-strong:rgba(34,197,94,.42);
-  --accent:#22c55e;          /* UVM verde */
-  --accent-2:#e23744;        /* UVM rojo */
-  --uvm-green:#22c55e;
-  --uvm-red:#e23744;
-  --ok:#34d399;
+  --bg:#080d07;
+  --panel:#0f1a0c;
+  --panel-2:#0b1308;
+  --line:rgba(140,198,63,.16);
+  --line-strong:rgba(140,198,63,.44);
+  --accent:#8cc63f;          /* UVM verde (del logo) */
+  --accent-2:#c01b1b;        /* UVM rojo (del logo) */
+  --uvm-green:#8cc63f;
+  --uvm-red:#c01b1b;
+  --ok:#5bd07a;
   --warn:#f2555f;
-  --text:#e3efe7;
-  --muted:#6a8377;
-  --glow:0 0 24px rgba(34,197,94,.20);
+  --text:#e6efdd;
+  --muted:#7c8f68;
+  --glow:0 0 24px rgba(140,198,63,.22);
   --mono:"SF Mono",ui-monospace,"Cascadia Code",Consolas,monospace;
 }
 
 /* ---------- modo claro ---------- */
 body.light{
-  --bg:#eef4ef;
+  --bg:#eef3e8;
   --panel:#ffffff;
-  --panel-2:#f0f6f1;
-  --line:rgba(15,124,66,.18);
-  --line-strong:rgba(15,124,66,.42);
-  --accent:#0f7c42;          /* UVM verde oscuro */
-  --accent-2:#c1272d;        /* UVM rojo */
-  --uvm-green:#0f7c42;
-  --uvm-red:#c1272d;
-  --ok:#059669;
+  --panel-2:#f2f6ec;
+  --line:rgba(95,156,20,.20);
+  --line-strong:rgba(95,156,20,.44);
+  --accent:#5f9c14;          /* UVM verde oscuro */
+  --accent-2:#a81a1a;        /* UVM rojo */
+  --uvm-green:#5f9c14;
+  --uvm-red:#a81a1a;
+  --ok:#4e9e2f;
   --warn:#dc2626;
-  --text:#10231a;
-  --muted:#5a6f63;
-  --glow:0 0 18px rgba(15,124,66,.16);
+  --text:#182312;
+  --muted:#5f6f52;
+  --glow:0 0 18px rgba(95,156,20,.18);
 }
-body.light .topbar{background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(236,244,238,.6))}
-body.light .sidebar{background:linear-gradient(180deg,rgba(240,246,241,.7),transparent)}
+body.light .topbar{background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(238,244,232,.6))}
+body.light .sidebar{background:linear-gradient(180deg,rgba(242,246,236,.7),transparent)}
 body.light .grid-bg{opacity:.6}
 
 /* toggle de tema */
@@ -51,7 +51,7 @@ body.light .grid-bg{opacity:.6}
 .theme-toggle:hover{border-color:var(--accent);box-shadow:var(--glow)}
 /* pulso rojo del truco "ladrar/gruñir" (perro enojado) */
 body.barking::after{content:"";position:fixed;inset:0;z-index:60;pointer-events:none;
-  box-shadow:inset 0 0 130px rgba(226,55,68,.55);animation:barkpulse .7s ease-out}
+  box-shadow:inset 0 0 130px rgba(192,27,27,.55);animation:barkpulse .7s ease-out}
 @keyframes barkpulse{0%{opacity:0}18%{opacity:1}100%{opacity:0}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
@@ -85,7 +85,7 @@ body{
 .brand-sub{color:var(--muted);font-size:10px;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* emblema UVM (logo real o el Higueron SVG de respaldo) */
 .uvm-emblem{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;
-  color:var(--uvm-green);flex:0 0 auto;filter:drop-shadow(0 0 8px rgba(34,197,94,.25))}
+  color:var(--uvm-green);flex:0 0 auto;filter:drop-shadow(0 0 8px rgba(140,198,63,.25))}
 .uvm-emblem img{width:40px;height:40px;object-fit:contain;border-radius:8px}
 .uvm-emblem svg{width:40px;height:40px}
 /* boton de menu (solo movil) */
@@ -127,11 +127,11 @@ body{
 }
 .nav-item:hover{background:var(--panel);border-color:var(--line)}
 .nav-item.active{
-  background:linear-gradient(90deg,rgba(34,197,94,.16),transparent);
+  background:linear-gradient(90deg,rgba(140,198,63,.16),transparent);
   border-color:var(--line-strong);color:var(--accent);
   box-shadow:inset 2px 0 0 var(--accent)
 }
-body.light .nav-item.active{background:linear-gradient(90deg,rgba(15,124,66,.14),transparent)}
+body.light .nav-item.active{background:linear-gradient(90deg,rgba(95,156,20,.14),transparent)}
 
 /* ---------- contenido / paneles ---------- */
 .content{padding:24px;overflow-y:auto}
@@ -158,8 +158,8 @@ body.light .nav-item.active{background:linear-gradient(90deg,rgba(15,124,66,.14)
 }
 .btn:hover{border-color:var(--accent);box-shadow:var(--glow);color:var(--accent)}
 .btn:active{transform:translateY(1px)}
-.btn.accent{background:linear-gradient(180deg,rgba(34,197,94,.20),rgba(34,197,94,.05));border-color:var(--accent);color:var(--accent)}
-body.light .btn.accent{background:linear-gradient(180deg,rgba(15,124,66,.16),rgba(15,124,66,.04))}
+.btn.accent{background:linear-gradient(180deg,rgba(140,198,63,.20),rgba(140,198,63,.05));border-color:var(--accent);color:var(--accent)}
+body.light .btn.accent{background:linear-gradient(180deg,rgba(95,156,20,.16),rgba(95,156,20,.04))}
 .btn.warn{border-color:var(--warn);color:var(--warn)}
 .btn.warn:hover{box-shadow:0 0 24px rgba(248,113,113,.25)}
 .btn-row{display:flex;gap:10px;flex-wrap:wrap}
@@ -186,7 +186,7 @@ body.light .btn.accent{background:linear-gradient(180deg,rgba(15,124,66,.16),rgb
 }
 .placeholder b{color:var(--text);display:block;margin-bottom:6px;font-size:15px}
 .tag{display:inline-block;font-size:10px;letter-spacing:1px;text-transform:uppercase;
-  color:var(--uvm-red);border:1px solid rgba(226,55,68,.35);border-radius:6px;padding:2px 7px;margin-top:10px}
+  color:var(--uvm-red);border:1px solid rgba(192,27,27,.35);border-radius:6px;padding:2px 7px;margin-top:10px}
 
 /* camara en vivo */
 .cam img{width:100%;display:block;border-radius:12px;background:#000;

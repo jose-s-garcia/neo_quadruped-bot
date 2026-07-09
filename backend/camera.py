@@ -156,6 +156,11 @@ class Vision:
         "tostadora", "lavabo", "refrigerador", "libro", "reloj", "florero", "tijeras", "peluche", "secador", "cepillo",
     ]
     FILTERS = ("normal", "bordes", "contornos", "gris", "termica", "movimiento")
+    # --- tracker (arregla el parpadeo, da ID a cada objeto y permite seguir) ---
+    CONF_MIN = 0.35        # umbral YOLO (bajo, para no perder al objeto en cuadros dificiles)
+    IOU_MATCH = 0.3        # solape minimo para considerar "el mismo objeto" entre cuadros
+    MAX_MISSES = 6         # pases de deteccion que un objeto sobrevive sin verse (anti-parpadeo)
+    MIN_HITS = 2           # veces visto para confirmarlo (evita destellos falsos)
 
     def __init__(self, min_area=1200):
         self.colors_on = False
@@ -167,11 +172,14 @@ class Vision:
         self._out_names = None
         self.dnn_ok = False
         self._frame_i = 0
-        self._obj_cache = []              # [(box, label, conf)] del ultimo pase de la red
-        self._person_boxes = []
         self._prev_motion = None
+        self._wh = (1, 1)                 # tamano del ultimo frame (para normalizar el objetivo)
+        self.tracks = []                  # {id,label,box:[x,y,w,h],conf,hits,misses}
+        self._next_id = 1
+        self.target_id = None             # id del objeto que se sigue/resalta
+        self.follow_on = False
         self.counts = {"objetos": 0, "colores": 0}
-        self.detections = []              # [{label, conf}] para el frontend
+        self.detections = []              # [{id,label,conf}] para el frontend
         self._load_dnn()
 
     @property
@@ -208,56 +216,136 @@ class Vision:
         return int(col[0]), int(col[1]), int(col[2])
 
     def _detect_objects(self, src, out):
-        """YOLO cada 3 cuadros (es pesada) con cache de cajas en el medio."""
-        if not self.dnn_ok:
-            self._detect_people_hog(src, out)
-            return
+        """Corre la red cada 3 cuadros y ALIMENTA un tracker; dibuja cada cuadro las
+        cajas suavizadas del tracker -> estables, sin parpadeo y con ID por objeto."""
         self._frame_i += 1
+        self._wh = (src.shape[1], src.shape[0])
         if self._frame_i % 3 == 0:
-            h, w = src.shape[:2]
-            blob = cv2.dnn.blobFromImage(src, 1 / 255.0, (320, 320), swapRB=True, crop=False)
-            self._net.setInput(blob)
-            boxes, confs, ids = [], [], []
-            for o in self._net.forward(self._out_names):
-                for d in o:
-                    scores = d[5:]
-                    cid = int(np.argmax(scores))
-                    conf = float(scores[cid])
-                    if conf < 0.45:
-                        continue
-                    bw, bh = d[2] * w, d[3] * h
-                    boxes.append([int(d[0] * w - bw / 2), int(d[1] * h - bh / 2), int(bw), int(bh)])
-                    confs.append(conf)
-                    ids.append(cid)
-            keep = cv2.dnn.NMSBoxes(boxes, confs, 0.45, 0.4)
-            keep = np.array(keep).flatten() if len(keep) else []
-            self._obj_cache = [(boxes[i], self.COCO_ES[ids[i]], confs[i]) for i in keep]
-            self.detections = [{"label": l, "conf": round(c, 2)} for _, l, c in self._obj_cache]
-            self.counts["objetos"] = len(self._obj_cache)
-        for (x, y, bw, bh), label, conf in self._obj_cache:
-            col = self._class_color(label)
-            cv2.rectangle(out, (x, y), (x + bw, y + bh), col, 2)
-            cv2.putText(out, f"{label} {conf:.0%}", (x + 2, max(y - 6, 14)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2)
+            dets = self._run_yolo(src) if self.dnn_ok else self._run_hog(src)
+            self._update_tracks(dets)
+        self._draw_tracks(out)
 
-    def _detect_people_hog(self, src, out):
-        """Fallback sin modelo: HOG+SVM de OpenCV (solo personas de cuerpo entero)."""
+    def _run_yolo(self, src):
+        h, w = src.shape[:2]
+        blob = cv2.dnn.blobFromImage(src, 1 / 255.0, (320, 320), swapRB=True, crop=False)
+        self._net.setInput(blob)
+        boxes, confs, ids = [], [], []
+        for o in self._net.forward(self._out_names):
+            for d in o:
+                scores = d[5:]
+                cid = int(np.argmax(scores))
+                conf = float(scores[cid])
+                if conf < self.CONF_MIN:
+                    continue
+                bw, bh = d[2] * w, d[3] * h
+                boxes.append([int(d[0] * w - bw / 2), int(d[1] * h - bh / 2), int(bw), int(bh)])
+                confs.append(conf)
+                ids.append(cid)
+        keep = cv2.dnn.NMSBoxes(boxes, confs, self.CONF_MIN, 0.4)
+        keep = np.array(keep).flatten() if len(keep) else []
+        return [(boxes[i], self.COCO_ES[ids[i]], confs[i]) for i in keep]
+
+    def _run_hog(self, src):
         if self._hog is None:
             self._hog = cv2.HOGDescriptor()
             self._hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-        self._frame_i += 1
-        if self._frame_i % 3 == 0:
-            scale = 640.0 / src.shape[1] if src.shape[1] > 640 else 1.0
-            small = cv2.resize(src, None, fx=scale, fy=scale) if scale < 1 else src
-            rects, _ = self._hog.detectMultiScale(small, winStride=(8, 8), padding=(8, 8), scale=1.05)
-            self._person_boxes = [(int(x / scale), int(y / scale),
-                                   int(w / scale), int(h / scale)) for (x, y, w, h) in rects]
-            self.detections = [{"label": "persona", "conf": 0.5} for _ in self._person_boxes]
-            self.counts["objetos"] = len(self._person_boxes)
-        for (x, y, w, h) in self._person_boxes:
-            cv2.rectangle(out, (x, y), (x + w, y + h), (0, 255, 120), 2)
-            cv2.putText(out, "persona", (x + 2, max(y - 6, 12)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 120), 2)
+        scale = 640.0 / src.shape[1] if src.shape[1] > 640 else 1.0
+        small = cv2.resize(src, None, fx=scale, fy=scale) if scale < 1 else src
+        rects, _ = self._hog.detectMultiScale(small, winStride=(8, 8), padding=(8, 8), scale=1.05)
+        return [([int(x / scale), int(y / scale), int(w / scale), int(h / scale)], "persona", 0.5)
+                for (x, y, w, h) in rects]
+
+    @staticmethod
+    def _iou(a, b):
+        ax, ay, aw, ah = a; bx, by, bw, bh = b
+        x1, y1, x2, y2 = max(ax, bx), max(ay, by), min(ax + aw, bx + bw), min(ay + ah, by + bh)
+        inter = max(0, x2 - x1) * max(0, y2 - y1)
+        union = aw * ah + bw * bh - inter
+        return inter / union if union > 0 else 0.0
+
+    def _update_tracks(self, dets):
+        # empareja detecciones con tracks por IoU (greedy, mayor solape primero)
+        pairs = sorted(((self._iou(t["box"], d[0]), ti, di)
+                        for ti, t in enumerate(self.tracks) for di, d in enumerate(dets)),
+                       reverse=True)
+        mt, md = set(), set()
+        for iou, ti, di in pairs:
+            if iou < self.IOU_MATCH or ti in mt or di in md:
+                continue
+            box, label, conf = dets[di]
+            t = self.tracks[ti]
+            t["box"] = [int(0.5 * o + 0.5 * n) for o, n in zip(t["box"], box)]   # EMA anti-jitter
+            t["label"], t["conf"] = label, conf
+            t["hits"] += 1; t["misses"] = 0
+            mt.add(ti); md.add(di)
+        for di, (box, label, conf) in enumerate(dets):        # detecciones nuevas -> track nuevo
+            if di not in md:
+                self.tracks.append({"id": self._next_id, "label": label, "box": list(box),
+                                    "conf": conf, "hits": 1, "misses": 0})
+                self._next_id += 1
+        for ti, t in enumerate(self.tracks):                  # tracks no vistos -> envejecen
+            if ti not in mt:
+                t["misses"] += 1
+        self.tracks = [t for t in self.tracks if t["misses"] <= self.MAX_MISSES]
+        conf_tracks = [t for t in self.tracks if t["hits"] >= self.MIN_HITS]
+        self.detections = [{"id": t["id"], "label": t["label"], "conf": round(t["conf"], 2)} for t in conf_tracks]
+        self.counts["objetos"] = len(conf_tracks)
+        self._refresh_target(conf_tracks)
+
+    def _refresh_target(self, conf_tracks):
+        if self.target_id in {t["id"] for t in conf_tracks}:
+            return                                            # el objetivo sigue vivo
+        if self.follow_on and conf_tracks:                    # perdido y seguimos -> re-elige
+            persons = [t for t in conf_tracks if t["label"] == "persona"] or conf_tracks
+            self.target_id = max(persons, key=lambda t: t["box"][2] * t["box"][3])["id"]
+        else:
+            self.target_id = None
+
+    def _draw_tracks(self, out):
+        W, H = self._wh
+        for t in self.tracks:
+            if t["hits"] < self.MIN_HITS and t["misses"] > 0:
+                continue
+            x, y, w, h = t["box"]
+            tgt = (t["id"] == self.target_id)
+            col = (0, 215, 255) if tgt else self._class_color(t["label"])
+            cv2.rectangle(out, (x, y), (x + w, y + h), col, 3 if tgt else 2)
+            cv2.putText(out, f"{'SIGO ' if tgt else ''}{t['label']} #{t['id']} {t['conf']:.0%}",
+                        (x + 2, max(y - 6, 14)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2)
+            if tgt:   # linea del centro al objetivo (muestra el error de seguimiento)
+                cv2.line(out, (W // 2, H // 2), (x + w // 2, y + h // 2), (0, 215, 255), 1)
+
+    # -- objetivo / seguimiento -------------------------------------------
+    def get_target(self):
+        """Datos normalizados del objetivo, para el controlador de seguimiento."""
+        W, H = self._wh
+        for t in self.tracks:
+            if t["id"] == self.target_id and t["hits"] >= self.MIN_HITS and t["misses"] == 0:
+                x, y, w, h = t["box"]
+                return {"id": t["id"], "cx": (x + w / 2) / W, "size": h / H, "label": t["label"]}
+        return None
+
+    def select_target_xy(self, xn, yn):
+        """Elige como objetivo el track (mas pequeno) que contiene el punto (xn,yn)."""
+        W, H = self._wh
+        px, py = xn * W, yn * H
+        for t in sorted(self.tracks, key=lambda t: t["box"][2] * t["box"][3]):
+            x, y, w, h = t["box"]
+            if t["hits"] >= self.MIN_HITS and x <= px <= x + w and y <= py <= y + h:
+                self.target_id = t["id"]
+                return t["id"]
+        return None
+
+    def cycle_target(self):
+        """Pasa al siguiente objetivo confirmado (util con muchas personas)."""
+        ids = [t["id"] for t in self.tracks if t["hits"] >= self.MIN_HITS]
+        if not ids:
+            self.target_id = None
+        elif self.target_id in ids:
+            self.target_id = ids[(ids.index(self.target_id) + 1) % len(ids)]
+        else:
+            self.target_id = ids[0]
+        return self.target_id
 
     # -- colores ------------------------------------------------------------
     def _detect_colors(self, src, out):
@@ -395,11 +483,19 @@ class Camera:
     def vision_status(self):
         if self.vision is None:
             return {"colores": False, "objetos": False, "filtro": "normal",
-                    "dnn": False, "disponible": False, "counts": {}, "detections": []}
+                    "dnn": False, "disponible": False, "counts": {}, "detections": [], "target": None}
         return {"colores": self.vision.colors_on, "objetos": self.vision.objects_on,
                 "filtro": self.vision.filter, "dnn": self.vision.dnn_ok,
                 "disponible": True, "counts": self.vision.counts,
-                "detections": self.vision.detections if self.vision.objects_on else []}
+                "detections": self.vision.detections if self.vision.objects_on else [],
+                "target": self.vision.target_id}
+
+    def target_at(self, x, y):
+        """Elige objetivo por click (coords normalizadas 0-1)."""
+        return {"target": self.vision.select_target_xy(x, y)} if self.vision else {"target": None}
+
+    def cycle_target(self):
+        return {"target": self.vision.cycle_target()} if self.vision else {"target": None}
 
     def probe(self, x, y):
         """Cuentagotas: color en el punto (x, y) normalizado [0-1] del video."""

@@ -27,7 +27,7 @@ function mountControlPad(root) {
 function mountJoystick(zone) {
   let vec = { x: 0, y: 0 }, iv = null;
   const joy = nipplejs.create({ zone, mode: "static", position: { left: "50%", top: "50%" },
-    color: "#22c55e", size: 130 });
+    color: "#8cc63f", size: 130 });
   joy.on("move", (e, d) => { if (d.vector) vec = d.vector; });
   joy.on("start", () => {
     iv = setInterval(() => {
@@ -53,6 +53,19 @@ window.__bark = () => {
   window.__barkT = setTimeout(() => document.body.classList.remove("barking"), 700);
 };
 
+/* ---------------- voz: NEO habla (TTS en el Jetson) ---------------- */
+window.__sayText = async (t) => {
+  const r = await api.say(t);
+  if (r && r.available === false) {
+    const h = document.getElementById("voiceHint");
+    if (h) h.textContent = "TTS no instalado en el Jetson: sudo apt install espeak-ng";
+  }
+};
+window.__say = () => {
+  const i = document.getElementById("sayInput");
+  if (i && i.value.trim()) { window.__sayText(i.value.trim()); i.value = ""; i.focus(); }
+};
+
 /* ---------------- LIDAR: radar + info + marcadores + retos ---------------- */
 let _lidarWS = null, _lidarLast = {}, _lidarMAX = 4000, _retosDone = {};
 let _lidarMarkers = [];
@@ -71,17 +84,17 @@ function drawRadar(d) {
   const MAX = NICE.find(n => n >= Math.max(p90, maxObj) * 1.12) || 12000; _lidarMAX = MAX;
   const P2 = (ang, dist) => { const a = ang * Math.PI / 180, r = Math.min(R * dist / MAX, R); return [cx + r * Math.sin(a), cy - r * Math.cos(a)]; };
   ctx.clearRect(0, 0, W, H);
-  ctx.strokeStyle = "rgba(45,212,238,.18)"; ctx.fillStyle = "rgba(45,212,238,.5)"; ctx.font = "10px monospace";
+  ctx.strokeStyle = "rgba(140,198,63,.18)"; ctx.fillStyle = "rgba(140,198,63,.5)"; ctx.font = "10px monospace";
   for (let k = 1; k <= 4; k++) { const r = R * k / 4; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
     ctx.fillText((MAX / 1000 * k / 4).toFixed(1) + "m", cx + 3, cy - r + 12); }
-  ctx.strokeStyle = "rgba(45,212,238,.14)"; ctx.beginPath(); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.stroke();
+  ctx.strokeStyle = "rgba(140,198,63,.14)"; ctx.beginPath(); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.stroke();
   ctx.fillStyle = "rgba(160,190,230,.55)"; ctx.font = "11px system-ui";
   ctx.fillText("frente 0°", cx + 6, cy - R + 12); ctx.fillText("atrás", cx + 6, cy + R - 4);
   ctx.fillText("der →", cx + R - 34, cy - 6); ctx.fillText("← izq", cx - R + 4, cy - 6);
   // puntos coloreados por distancia (rojo=cerca, azul=lejos)
   for (const p of d.points || []) { if (p.dist > MAX) continue; const [x, y] = P2(p.angle, p.dist);
     ctx.fillStyle = `hsl(${Math.round(200 * p.dist / MAX)},85%,62%)`; ctx.fillRect(x, y, 2, 2); }
-  ctx.fillStyle = "#22c55e"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI); ctx.fill();   // robot
+  ctx.fillStyle = "#8cc63f"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI); ctx.fill();   // robot
   const objs = (d.objects || []).slice().sort((a, b) => a.dist - b.dist);
   ctx.lineCap = "round";
   for (const o of objs) {   // cada objeto: su extension (cuerda) + distancia
@@ -241,7 +254,7 @@ function footFrom(G, id, phase, mode) {          // -> {x fore-aft mm, lift mm}
 }
 const _seg = (ctx, ax, ay, bx, by, c, w) => { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); };
 const _dot = (ctx, x, y, c, r) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill(); };
-const _cap = (ctx, txt) => { ctx.fillStyle = "rgba(45,212,238,.9)"; ctx.font = "12px system-ui"; ctx.fillText(txt, 14, 22); };
+const _cap = (ctx, txt) => { ctx.fillStyle = "rgba(140,198,63,.9)"; ctx.font = "12px system-ui"; ctx.fillText(txt, 14, 22); };
 
 function drawSide(ctx, W, H, G, phase, mode) {   // perfil: IK completa (cadera-rodilla-pie)
   const sc = 1.0, cx = W / 2, hipY = 100;
@@ -253,7 +266,7 @@ function drawSide(ctx, W, H, G, phase, mode) {   // perfil: IK completa (cadera-
     if (!sol) continue;
     const kx = hipx + Math.sin(sol.femurDir) * IK_F * sc, ky = hipY + Math.cos(sol.femurDir) * IK_F * sc;
     const fx = hipx + f.x * sc, fy = hipY + (IK_Z - f.lift) * sc;
-    _seg(ctx, hipx, hipY, kx, ky, faded ? "rgba(45,212,238,.25)" : "#22c55e", 6);
+    _seg(ctx, hipx, hipY, kx, ky, faded ? "rgba(140,198,63,.25)" : "#8cc63f", 6);
     _seg(ctx, kx, ky, fx, fy, faded ? "rgba(124,140,255,.25)" : "#7c8cff", 6);
     _dot(ctx, hipx, hipY, "#fff", 3);
     _dot(ctx, fx, fy, f.lift > 1 ? "#ff7a45" : (faded ? "rgba(230,240,255,.4)" : "#e6f0ff"), 5);
@@ -265,12 +278,12 @@ function drawTop(ctx, W, H, G, phase, mode) {    // superior: coordinacion de la
   const S = (x, y) => [cx - y * sc, cy - x * sc];
   ctx.fillStyle = "rgba(138,160,200,.15)"; ctx.strokeStyle = "#8aa0c8"; ctx.lineWidth = 2;
   ctx.beginPath(); [[90, 60], [90, -60], [-90, -60], [-90, 60]].forEach((p, i) => { const [x, y] = S(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath(); ctx.fill(); ctx.stroke();
-  _seg(ctx, cx, cy - 12, cx, cy - 150, "rgba(45,212,238,.4)", 2); _dot(ctx, cx, cy - 150, "#22c55e", 3);  // flecha adelante
+  _seg(ctx, cx, cy - 12, cx, cy - 150, "rgba(140,198,63,.4)", 2); _dot(ctx, cx, cy - 150, "#8cc63f", 3);  // flecha adelante
   for (const leg of LEGS) {
     const f = footFrom(G, leg.id, phase, mode);
     const [hx, hy] = S(leg.lx, leg.ly), [sx, sy] = S(leg.lx + f.x, leg.ly), swing = f.lift > 1;
     _seg(ctx, hx, hy, sx, sy, "rgba(255,255,255,.15)", 2);
-    _dot(ctx, sx, sy, swing ? "#ff7a45" : "#22c55e", swing ? 5 + f.lift * 0.08 : 6);
+    _dot(ctx, sx, sy, swing ? "#ff7a45" : "#8cc63f", swing ? 5 + f.lift * 0.08 : 6);
     if (swing) { ctx.strokeStyle = "#ff7a45"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(sx, sy, 10, 0, 2 * Math.PI); ctx.stroke(); }
   }
   _cap(ctx, "VISTA SUPERIOR · azul = apoyo · naranja = vuelo (levantada)");
@@ -281,7 +294,7 @@ function drawFront(ctx, W, H, G, phase, mode) {  // frontal: par delantero, se v
   for (const id of ["FL", "FR"]) {
     const leg = LEGS.find(l => l.id === id), hipx = cx - leg.ly * sc, f = footFrom(G, id, phase, mode);
     const kx = hipx + (leg.ly > 0 ? -7 : 7), ky = hipY + IK_Z * 0.5 * sc, fy = hipY + (IK_Z - f.lift) * sc;
-    _seg(ctx, hipx, hipY, kx, ky, "#22c55e", 6); _seg(ctx, kx, ky, hipx, fy, "#7c8cff", 6);
+    _seg(ctx, hipx, hipY, kx, ky, "#8cc63f", 6); _seg(ctx, kx, ky, hipx, fy, "#7c8cff", 6);
     _dot(ctx, hipx, hipY, "#fff", 3); _dot(ctx, hipx, fy, f.lift > 1 ? "#ff7a45" : "#e6f0ff", 5);
   }
   _cap(ctx, "VISTA FRONTAL · patas delanteras");
@@ -294,7 +307,7 @@ function drawIso(ctx, W, H, G, phase, mode) {    // isometrica: pseudo-3D
   for (const leg of LEGS) {
     const f = footFrom(G, leg.id, phase, mode);
     const [hx, hy] = P(leg.lx, leg.ly, 0), [fx, fy] = P(leg.lx + f.x, leg.ly, IK_Z - f.lift);
-    _seg(ctx, hx, hy, fx, fy, "#22c55e", 5); _dot(ctx, hx, hy, "#fff", 3);
+    _seg(ctx, hx, hy, fx, fy, "#8cc63f", 5); _dot(ctx, hx, hy, "#fff", 3);
     _dot(ctx, fx, fy, f.lift > 1 ? "#ff7a45" : "#e6f0ff", 5);
   }
   _cap(ctx, "VISTA ISOMÉTRICA (3D)");
@@ -308,7 +321,7 @@ function drawPhaseDiagram(ctx, W, H, G, phase, mode) {
     ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.font = "11px monospace";
     ctx.fillText(LEGS.find(l => l.id === id).name, 4, y + rowH - 3);
     ctx.fillStyle = "rgba(124,140,255,.15)"; ctx.fillRect(x0, y, x1 - x0, rowH);   // fondo = vuelo
-    ctx.fillStyle = "rgba(45,212,238,.55)";                                        // barras = apoyo
+    ctx.fillStyle = "rgba(140,198,63,.55)";                                        // barras = apoyo
     for (let k = 0; k < N; k++) {
       const t = k / N, p = (t + G.phases[id]) % 1;
       if (mode !== "walk" || p < G.duty) ctx.fillRect(x0 + t * (x1 - x0), y, (x1 - x0) / N + 1, rowH);
@@ -391,7 +404,7 @@ function mountIKInteractive() {
       const femurDir = angHF - a;
       knee = { x: hip.x + Math.sin(femurDir) * F * SCALE, y: hip.y + Math.cos(femurDir) * F * SCALE };
       const kneeAng = Math.acos((F * F + T * T - h * h) / (2 * F * T));
-      seg(hip, knee, "#22c55e", 6); seg(knee, foot, "#7c8cff", 6);
+      seg(hip, knee, "#8cc63f", 6); seg(knee, foot, "#7c8cff", 6);
       set("ik-femur", (femurDir * 180 / Math.PI).toFixed(0) + "°");
       set("ik-tibia", (kneeAng * 180 / Math.PI).toFixed(0) + "°");
       set("ik-state", "✓ alcanzable"); if (st) st.style.color = "#39d98a";
@@ -573,6 +586,12 @@ function visionHTML() {
           <button class="btn" id="vSnapBtn">📸 Foto</button>
           <button class="btn" id="vFlipBtn" title="Por si la imagen se ve al revés">🔃 Girar 180°</button>
         </div>
+        <div class="btn-row" style="margin-top:8px;gap:8px;flex-wrap:wrap">
+          <button class="btn" id="vFollowBtn">🎯 Seguir: OFF</button>
+          <button class="btn" id="vCycleBtn">⏭ Cambiar objetivo</button>
+          <button class="btn" id="vNarrateBtn">🗣 Narrar: OFF</button>
+        </div>
+        <p style="opacity:.6;font-size:11px;margin-top:8px">Con <b>Objetos</b> activo, <b>toca</b> a alguien en el video para seguirlo. <b>Seguir</b> mueve el robot — pruébalo con las patas al aire primero.</p>
         <div style="margin-top:10px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)">Laboratorio de filtros</div>
         <div class="btn-row" id="vFilters" style="margin-top:6px;gap:6px;flex-wrap:wrap">
           ${V_FILTERS.map(([f, label]) => `<button class="btn" style="padding:7px 12px;font-size:12px" data-vf="${f}">${label}</button>`).join("")}
@@ -600,21 +619,32 @@ function visionHTML() {
 function mountVision() {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   const cBtn = document.getElementById("vColorBtn"), oBtn = document.getElementById("vObjBtn");
+  const fBtn = document.getElementById("vFollowBtn"), nBtn = document.getElementById("vNarrateBtn");
+  let objOn = false;   // lo usa el click del video: elegir objetivo vs. cuentagotas
   const paint = (st) => {
     if (!st || st.disponible === false) return;
+    objOn = !!st.objetos;
     if (cBtn) { cBtn.textContent = "🎨 Colores: " + (st.colores ? "ON" : "OFF"); cBtn.classList.toggle("accent", !!st.colores); }
     if (oBtn) { oBtn.textContent = "🧠 Objetos (IA): " + (st.objetos ? "ON" : "OFF"); oBtn.classList.toggle("accent", !!st.objetos); }
+    if (fBtn) { fBtn.textContent = "🎯 Seguir: " + (st.follow ? "ON" : "OFF"); fBtn.classList.toggle("accent", !!st.follow); }
+    if (nBtn) { nBtn.textContent = "🗣 Narrar: " + (st.narrate ? "ON" : "OFF"); nBtn.classList.toggle("accent", !!st.narrate); }
     document.querySelectorAll("#vFilters [data-vf]").forEach(b => b.classList.toggle("accent", b.dataset.vf === st.filtro));
     if (st.counts) { set("v-col-count", st.counts.colores ?? 0); set("v-obj-count", st.counts.objetos ?? 0); }
     const dets = document.getElementById("v-dets");
     if (dets) dets.innerHTML = (st.detections || []).length
-      ? st.detections.map(d => `▸ ${d.label} <span style="opacity:.6">${Math.round(d.conf * 100)}%</span>`).join("<br>")
+      ? st.detections.map(d => { const t = d.id === st.target;
+          return `<span style="color:${t ? "#e0b000" : "inherit"};font-weight:${t ? 700 : 400}">${t ? "🎯" : "▸"} ${d.label} <span style="opacity:.55">#${d.id} · ${Math.round(d.conf * 100)}%</span></span>`;
+        }).join("<br>")
       : (st.objetos ? "buscando…" : "—");
     const warn = document.getElementById("vDnnWarn");
     if (warn) warn.style.display = st.dnn === false ? "block" : "none";
   };
   if (cBtn) cBtn.onclick = async () => paint(await api.vision("color"));
   if (oBtn) oBtn.onclick = async () => paint(await api.vision("objects"));
+  if (fBtn) fBtn.onclick = async () => { await api.follow(); paint(await api.visionStatus()); };
+  if (nBtn) nBtn.onclick = async () => { await api.narrate(); paint(await api.visionStatus()); };
+  const cyBtn = document.getElementById("vCycleBtn");
+  if (cyBtn) cyBtn.onclick = async () => { await api.cycleTarget(); paint(await api.visionStatus()); };
   const snap = document.getElementById("vSnapBtn");
   if (snap) snap.onclick = async () => {
     const r = await api.snapshot();
@@ -628,9 +658,11 @@ function mountVision() {
   };
   document.querySelectorAll("#vFilters [data-vf]").forEach(b => b.onclick = async () => paint(await api.visionFilter(b.dataset.vf)));
   const img = document.getElementById("visCam");
-  if (img) img.onclick = async (e) => {                       // cuentagotas
+  if (img) img.onclick = async (e) => {
     const r = img.getBoundingClientRect();
-    const res = await api.probe(((e.clientX - r.left) / r.width).toFixed(3), ((e.clientY - r.top) / r.height).toFixed(3));
+    const x = ((e.clientX - r.left) / r.width).toFixed(3), y = ((e.clientY - r.top) / r.height).toFixed(3);
+    if (objOn) { await api.targetAt(x, y); paint(await api.visionStatus()); return; }   // elegir a quién seguir
+    const res = await api.probe(x, y);                          // si no hay deteccion: cuentagotas
     const box = document.getElementById("v-probe");
     if (!box) return;
     box.innerHTML = res.ok
@@ -641,12 +673,12 @@ function mountVision() {
   };
   api.visionStatus().then(paint);
   if (_visionIV) clearInterval(_visionIV);
-  _visionIV = setInterval(() => api.visionStatus().then(paint), 1200);   // refresca detecciones
+  _visionIV = setInterval(() => api.visionStatus().then(paint), 1000);   // refresca detecciones/objetivo
 }
 
 /* ---------------- página de inicio: todos los módulos por nivel ---------------- */
 const LEVELS = [
-  ["control",    "Centro de control", "#22c55e"],
+  ["control",    "Centro de control", "#8cc63f"],
   ["inicial",    "Nivel inicial",     "#34d399"],
   ["secundaria", "Nivel secundaria",  "#38bdf8"],
   ["superior",   "Nivel superior",    "#a78bfa"],
@@ -707,7 +739,21 @@ const views = {
           <button class="btn" onclick="window.__api.raw('w')">👋 Saludar</button>
           <button class="btn" onclick="window.__api.gait()">🐾 Cambiar marcha</button>
         </div>
-        <p style="opacity:.65;font-size:12px;margin-top:10px">El ladrido suena en el altavoz de este dispositivo (móvil/PC).</p>
+        <p style="opacity:.65;font-size:12px;margin-top:10px">El ladrido suena en este dispositivo (móvil/PC).</p>
+        <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+          <div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">🗣 NEO habla · voz en el robot</div>
+          <div class="btn-row" style="gap:8px">
+            <input id="sayInput" placeholder="Escribe algo y NEO lo dice…" onkeydown="if(event.key==='Enter')window.__say()"
+              style="flex:1;min-width:150px;padding:11px;border-radius:10px;border:1px solid var(--line-strong);background:var(--panel-2);color:var(--text)">
+            <button class="btn accent" onclick="window.__say()">Decir</button>
+          </div>
+          <div class="btn-row" style="margin-top:8px;gap:6px;flex-wrap:wrap">
+            <button class="btn" style="padding:6px 11px;font-size:12px" onclick="window.__sayText('Hola, soy NEO, el robot de la Universidad Valle del Momboy')">Presentarse</button>
+            <button class="btn" style="padding:6px 11px;font-size:12px" onclick="window.__sayText('Sistemas en línea, listo para trabajar')">En línea</button>
+            <button class="btn" style="padding:6px 11px;font-size:12px" onclick="window.__sayText('Cuidado, obstáculo detectado')">Alerta</button>
+          </div>
+          <p id="voiceHint" style="opacity:.6;font-size:11px;margin-top:8px">La voz sale por el altavoz conectado al Jetson (requiere <code>espeak-ng</code>).</p>
+        </div>
       </div>
     </div>`,
 
