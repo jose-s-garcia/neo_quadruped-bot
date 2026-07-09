@@ -17,17 +17,33 @@
 <!-- BARRA SUPERIOR -->
 <header class="topbar">
   <div class="brand">
-    <span class="logo">◣◢</span>
-    <span class="brand-name">NEO</span>
-    <span class="brand-sub">centro de comando</span>
+    <button class="hamburger" id="navToggle" aria-label="Abrir menú" title="Menú">☰</button>
+    <!-- Logo UVM: si existe assets/uvm-logo.png se usa; si no, cae al emblema SVG (El Higueron) -->
+    <span class="uvm-emblem" title="Universidad Valle del Momboy">
+      <img src="assets/uvm-logo.png" alt="UVM"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'">
+      <svg viewBox="0 0 48 48" fill="none" style="display:none" aria-hidden="true">
+        <circle cx="24" cy="24" r="21.5" stroke="currentColor" stroke-width="2.2"/>
+        <line x1="13" y1="34" x2="35" y2="34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <rect x="22.6" y="24" width="2.8" height="10.6" rx="1" fill="currentColor"/>
+        <circle cx="24" cy="17.4" r="6.2" fill="currentColor"/>
+        <circle cx="17.8" cy="21.4" r="5" fill="currentColor"/>
+        <circle cx="30.2" cy="21.4" r="5" fill="currentColor"/>
+      </svg>
+    </span>
+    <span class="brand-text">
+      <span class="brand-name"><span class="logo">◣◢</span> NEO</span>
+      <span class="brand-sub">Universidad Valle del Momboy</span>
+    </span>
   </div>
   <div class="status">
     <span class="chip" id="connChip"><i class="dot"></i> <span id="connText">conectando…</span></span>
     <span class="chip" id="modeChip">MODO · <b id="modeText">—</b></span>
-    <span class="chip"><i class="ic">⚡</i> <span id="battText">8.4V</span></span>
+    <span class="chip battchip"><i class="ic">⚡</i> <span id="battText">8.4V</span></span>
     <button class="theme-toggle" id="themeToggle" title="Cambiar tema claro/oscuro">🌙</button>
   </div>
 </header>
+<div class="nav-scrim" id="navScrim"></div>
 
 <!-- LAYOUT PRINCIPAL -->
 <div class="layout">
@@ -60,6 +76,9 @@
     <div class="nav-group">
       <div class="nav-title">avanzado</div>
       <button class="nav-item" data-view="dev">🛠 Modo desarrollador</button>
+    </div>
+    <div class="sidebar-foot">
+      Proyecto de tesis<br><b>Universidad Valle del Momboy</b>
     </div>
   </nav>
 

@@ -27,7 +27,7 @@ function mountControlPad(root) {
 function mountJoystick(zone) {
   let vec = { x: 0, y: 0 }, iv = null;
   const joy = nipplejs.create({ zone, mode: "static", position: { left: "50%", top: "50%" },
-    color: "#2dd4ee", size: 130 });
+    color: "#22c55e", size: 130 });
   joy.on("move", (e, d) => { if (d.vector) vec = d.vector; });
   joy.on("start", () => {
     iv = setInterval(() => {
@@ -39,6 +39,19 @@ function mountJoystick(zone) {
   });
   joy.on("end", () => { clearInterval(iv); iv = null; vec = { x: 0, y: 0 }; api.stop(); });
 }
+
+/* ---------------- truco: ladrido / gruñido (suena en el dispositivo) ---------------- */
+let _barkAudio = null;
+window.__bark = () => {
+  try {
+    if (!_barkAudio) { _barkAudio = new Audio("assets/bark.mp3"); _barkAudio.preload = "auto"; }
+    _barkAudio.currentTime = 0;
+    _barkAudio.play().catch(() => {});   // algunos navegadores exigen gesto del usuario (el click lo es)
+  } catch {}
+  document.body.classList.add("barking");            // pulso rojo breve (perro enojado)
+  clearTimeout(window.__barkT);
+  window.__barkT = setTimeout(() => document.body.classList.remove("barking"), 700);
+};
 
 /* ---------------- LIDAR: radar + info + marcadores + retos ---------------- */
 let _lidarWS = null, _lidarLast = {}, _lidarMAX = 4000, _retosDone = {};
@@ -68,7 +81,7 @@ function drawRadar(d) {
   // puntos coloreados por distancia (rojo=cerca, azul=lejos)
   for (const p of d.points || []) { if (p.dist > MAX) continue; const [x, y] = P2(p.angle, p.dist);
     ctx.fillStyle = `hsl(${Math.round(200 * p.dist / MAX)},85%,62%)`; ctx.fillRect(x, y, 2, 2); }
-  ctx.fillStyle = "#2dd4ee"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI); ctx.fill();   // robot
+  ctx.fillStyle = "#22c55e"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI); ctx.fill();   // robot
   const objs = (d.objects || []).slice().sort((a, b) => a.dist - b.dist);
   ctx.lineCap = "round";
   for (const o of objs) {   // cada objeto: su extension (cuerda) + distancia
@@ -240,7 +253,7 @@ function drawSide(ctx, W, H, G, phase, mode) {   // perfil: IK completa (cadera-
     if (!sol) continue;
     const kx = hipx + Math.sin(sol.femurDir) * IK_F * sc, ky = hipY + Math.cos(sol.femurDir) * IK_F * sc;
     const fx = hipx + f.x * sc, fy = hipY + (IK_Z - f.lift) * sc;
-    _seg(ctx, hipx, hipY, kx, ky, faded ? "rgba(45,212,238,.25)" : "#2dd4ee", 6);
+    _seg(ctx, hipx, hipY, kx, ky, faded ? "rgba(45,212,238,.25)" : "#22c55e", 6);
     _seg(ctx, kx, ky, fx, fy, faded ? "rgba(124,140,255,.25)" : "#7c8cff", 6);
     _dot(ctx, hipx, hipY, "#fff", 3);
     _dot(ctx, fx, fy, f.lift > 1 ? "#ff7a45" : (faded ? "rgba(230,240,255,.4)" : "#e6f0ff"), 5);
@@ -252,12 +265,12 @@ function drawTop(ctx, W, H, G, phase, mode) {    // superior: coordinacion de la
   const S = (x, y) => [cx - y * sc, cy - x * sc];
   ctx.fillStyle = "rgba(138,160,200,.15)"; ctx.strokeStyle = "#8aa0c8"; ctx.lineWidth = 2;
   ctx.beginPath(); [[90, 60], [90, -60], [-90, -60], [-90, 60]].forEach((p, i) => { const [x, y] = S(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath(); ctx.fill(); ctx.stroke();
-  _seg(ctx, cx, cy - 12, cx, cy - 150, "rgba(45,212,238,.4)", 2); _dot(ctx, cx, cy - 150, "#2dd4ee", 3);  // flecha adelante
+  _seg(ctx, cx, cy - 12, cx, cy - 150, "rgba(45,212,238,.4)", 2); _dot(ctx, cx, cy - 150, "#22c55e", 3);  // flecha adelante
   for (const leg of LEGS) {
     const f = footFrom(G, leg.id, phase, mode);
     const [hx, hy] = S(leg.lx, leg.ly), [sx, sy] = S(leg.lx + f.x, leg.ly), swing = f.lift > 1;
     _seg(ctx, hx, hy, sx, sy, "rgba(255,255,255,.15)", 2);
-    _dot(ctx, sx, sy, swing ? "#ff7a45" : "#2dd4ee", swing ? 5 + f.lift * 0.08 : 6);
+    _dot(ctx, sx, sy, swing ? "#ff7a45" : "#22c55e", swing ? 5 + f.lift * 0.08 : 6);
     if (swing) { ctx.strokeStyle = "#ff7a45"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(sx, sy, 10, 0, 2 * Math.PI); ctx.stroke(); }
   }
   _cap(ctx, "VISTA SUPERIOR · azul = apoyo · naranja = vuelo (levantada)");
@@ -268,7 +281,7 @@ function drawFront(ctx, W, H, G, phase, mode) {  // frontal: par delantero, se v
   for (const id of ["FL", "FR"]) {
     const leg = LEGS.find(l => l.id === id), hipx = cx - leg.ly * sc, f = footFrom(G, id, phase, mode);
     const kx = hipx + (leg.ly > 0 ? -7 : 7), ky = hipY + IK_Z * 0.5 * sc, fy = hipY + (IK_Z - f.lift) * sc;
-    _seg(ctx, hipx, hipY, kx, ky, "#2dd4ee", 6); _seg(ctx, kx, ky, hipx, fy, "#7c8cff", 6);
+    _seg(ctx, hipx, hipY, kx, ky, "#22c55e", 6); _seg(ctx, kx, ky, hipx, fy, "#7c8cff", 6);
     _dot(ctx, hipx, hipY, "#fff", 3); _dot(ctx, hipx, fy, f.lift > 1 ? "#ff7a45" : "#e6f0ff", 5);
   }
   _cap(ctx, "VISTA FRONTAL · patas delanteras");
@@ -281,7 +294,7 @@ function drawIso(ctx, W, H, G, phase, mode) {    // isometrica: pseudo-3D
   for (const leg of LEGS) {
     const f = footFrom(G, leg.id, phase, mode);
     const [hx, hy] = P(leg.lx, leg.ly, 0), [fx, fy] = P(leg.lx + f.x, leg.ly, IK_Z - f.lift);
-    _seg(ctx, hx, hy, fx, fy, "#2dd4ee", 5); _dot(ctx, hx, hy, "#fff", 3);
+    _seg(ctx, hx, hy, fx, fy, "#22c55e", 5); _dot(ctx, hx, hy, "#fff", 3);
     _dot(ctx, fx, fy, f.lift > 1 ? "#ff7a45" : "#e6f0ff", 5);
   }
   _cap(ctx, "VISTA ISOMÉTRICA (3D)");
@@ -378,7 +391,7 @@ function mountIKInteractive() {
       const femurDir = angHF - a;
       knee = { x: hip.x + Math.sin(femurDir) * F * SCALE, y: hip.y + Math.cos(femurDir) * F * SCALE };
       const kneeAng = Math.acos((F * F + T * T - h * h) / (2 * F * T));
-      seg(hip, knee, "#2dd4ee", 6); seg(knee, foot, "#7c8cff", 6);
+      seg(hip, knee, "#22c55e", 6); seg(knee, foot, "#7c8cff", 6);
       set("ik-femur", (femurDir * 180 / Math.PI).toFixed(0) + "°");
       set("ik-tibia", (kneeAng * 180 / Math.PI).toFixed(0) + "°");
       set("ik-state", "✓ alcanzable"); if (st) st.style.color = "#39d98a";
@@ -633,7 +646,7 @@ function mountVision() {
 
 /* ---------------- página de inicio: todos los módulos por nivel ---------------- */
 const LEVELS = [
-  ["control",    "Centro de control", "#2dd4ee"],
+  ["control",    "Centro de control", "#22c55e"],
   ["inicial",    "Nivel inicial",     "#34d399"],
   ["secundaria", "Nivel secundaria",  "#38bdf8"],
   ["superior",   "Nivel superior",    "#a78bfa"],
@@ -688,6 +701,14 @@ const views = {
         <div class="metric"><span class="k">Roll</span><span class="v" id="m-roll">—</span></div>
       </div>
       <div class="panel"><h3>Cámara</h3>${cameraView}</div>
+      <div class="panel"><h3>Trucos</h3>
+        <div class="btn-row">
+          <button class="btn accent" onclick="window.__bark()">🔊 Ladrar / Gruñir</button>
+          <button class="btn" onclick="window.__api.raw('w')">👋 Saludar</button>
+          <button class="btn" onclick="window.__api.gait()">🐾 Cambiar marcha</button>
+        </div>
+        <p style="opacity:.65;font-size:12px;margin-top:10px">El ladrido suena en el altavoz de este dispositivo (móvil/PC).</p>
+      </div>
     </div>`,
 
   "inicial-drive": () => head("Maneja al robot", "Conduce y observa lo que ve") + `
@@ -716,11 +737,15 @@ const views = {
         </div>
       </aside>
     </div>`,
-  "inicial-tricks": () => head("Trucos", "Animaciones divertidas") + `
-    <div class="panel"><div class="btn-row">
-      <button class="btn" onclick="window.__api.raw('w')">Saludar</button>
-      <button class="btn" onclick="window.__api.raw('2')">Cambiar caminata</button>
-    </div></div>`,
+  "inicial-tricks": () => head("Trucos", "Haz que NEO reaccione") + `
+    <div class="panel"><h3>Sonidos y gestos</h3>
+      <div class="btn-row">
+        <button class="btn accent big" onclick="window.__bark()">🔊 Ladrar / Gruñir</button>
+        <button class="btn big" onclick="window.__api.raw('w')">👋 Saludar</button>
+        <button class="btn big" onclick="window.__api.raw('2')">🐾 Cambiar caminata</button>
+      </div>
+      <p style="opacity:.65;font-size:12px;margin-top:12px">El ladrido se reproduce en el altavoz de tu móvil o computadora.</p>
+    </div>`,
 
   "sec-blocks": () => head("Bloques + sensores", "Bucles, condicionales y LIDAR") +
     placeholder("Blockly avanzado", "Bloques con repetir/si-entonces y bloques de sensor (si obstáculo &lt; X → girar). Conecta lógica con el LIDAR.", "Blockly + LIDAR"),
@@ -803,11 +828,23 @@ function render(view) {
   if (view === "inicial-blocks") setTimeout(initBlocks, 0);  // Blockly tras render
 }
 
+/* ---------------- menú lateral (hamburguesa en móvil) ---------------- */
+const _sidebar = document.querySelector(".sidebar");
+const _scrim = document.getElementById("navScrim");
+const closeNav = () => { _sidebar?.classList.remove("open"); _scrim?.classList.remove("show"); };
+const navToggle = document.getElementById("navToggle");
+if (navToggle) navToggle.onclick = () => {
+  const open = _sidebar?.classList.toggle("open");
+  _scrim?.classList.toggle("show", !!open);
+};
+if (_scrim) _scrim.onclick = closeNav;
+
 document.querySelectorAll(".nav-item").forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     render(btn.dataset.view);
+    closeNav();   // en móvil, cerrar el menú tras elegir
   };
 });
 
