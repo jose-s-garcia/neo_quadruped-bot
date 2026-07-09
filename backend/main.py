@@ -64,9 +64,19 @@ def api_stop():
     return {"ok": True}
 
 
+@app.post("/api/raw", tags=["avanzado"])
+def api_raw(key: str = ""):
+    """Envia una tecla cruda al firmware. La tecla va como QUERY (?key=.) para no
+    romperse con caracteres especiales de URL como el punto '.' (que en la ruta
+    /api/raw/. se normaliza y se pierde -> por eso 'tip offset +' no llegaba)."""
+    if key:
+        robot.raw(key)
+    return {"ok": True}
+
+
 @app.post("/api/raw/{key}", tags=["avanzado"])
-def api_raw(key: str):
-    """Envia una tecla cruda al firmware (modulos avanzados / API Superior)."""
+def api_raw_path(key: str):
+    """Variante por ruta (compatibilidad). No la uses con '.' ni '/'."""
     robot.raw(key)
     return {"ok": True}
 

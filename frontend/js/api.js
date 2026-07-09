@@ -8,7 +8,7 @@ export const api = {
   gait:   ()        => post("/api/gait"),
   move:   (dir)     => post(`/api/move/${dir}`),
   stop:   ()        => post("/api/stop"),
-  raw:    (key)     => post(`/api/raw/${encodeURIComponent(key)}`),
+  raw:    (key)     => post(`/api/raw?key=${encodeURIComponent(key)}`),   // query, no ruta (el '.' en la ruta se pierde)
   stabilize: ()     => post("/api/camera/stabilize"),
   flip: ()          => post("/api/camera/flip"),
   snapshot: ()      => post("/api/camera/snapshot"),

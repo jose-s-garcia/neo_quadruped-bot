@@ -437,7 +437,7 @@ const head = (t, s) => `<div class="view-head"><h1>${t}</h1><p>${s}</p></div>`;
 const devKeys = (pairs) => `<div class="btn-row" style="flex-wrap:wrap;gap:8px">` +
   pairs.map(([label, key]) => `<button class="btn" data-key="${encodeURIComponent(key)}">${label}</button>`).join("") + `</div>`;
 
-let _devWS = null;
+let _devWS = null, _devKeyHandler = null;
 function mountDev() {
   const view = document.getElementById("view");
   const con = document.getElementById("devConsole");
@@ -447,6 +447,23 @@ function mountDev() {
   window.__devRaw = () => { const i = document.getElementById("devRaw"); if (i && i.value) { api.raw(i.value); i.value = ""; i.focus(); } };
   const inp = document.getElementById("devRaw");
   if (inp) inp.onkeydown = (e) => { if (e.key === "Enter") window.__devRaw(); };
+  // TECLADO DIRECTO: cada tecla que pulses va al robot (ideal para calibrar).
+  const kbdBtn = document.getElementById("devKbdBtn"), lastKey = document.getElementById("devLastKey");
+  let kbdOn = true;
+  const setKbd = () => { if (kbdBtn) { kbdBtn.textContent = "⌨ Teclado: " + (kbdOn ? "ON" : "OFF"); kbdBtn.classList.toggle("accent", kbdOn); } };
+  setKbd();
+  if (kbdBtn) kbdBtn.onclick = () => { kbdOn = !kbdOn; setKbd(); };
+  if (_devKeyHandler) document.removeEventListener("keydown", _devKeyHandler);
+  _devKeyHandler = (e) => {
+    if (!kbdOn) return;
+    const el = document.activeElement;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;   // no interferir al escribir
+    if (e.key.length !== 1) return;   // solo imprimibles (incluye espacio, +, -, =, letras, digitos)
+    e.preventDefault();
+    api.raw(e.key);
+    if (lastKey) lastKey.textContent = "→ " + (e.key === " " ? "(espacio)" : e.key);
+  };
+  document.addEventListener("keydown", _devKeyHandler);
   if (_devWS) { try { _devWS.close(); } catch {} }
   const proto = location.protocol === "https:" ? "wss" : "ws";
   _devWS = new WebSocket(`${proto}://${location.host}/ws/console`);
@@ -826,11 +843,14 @@ const views = {
     <div class="panels" style="display:block">
       <div class="panel"><h3>Consola serial (ESP32)</h3>
         <div id="devConsole" style="height:190px;overflow:auto;background:#05070b;border-radius:10px;padding:10px;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;color:#9fe8c0">conectando…</div>
-        <div class="btn-row" style="margin-top:8px;gap:8px">
+        <div class="btn-row" style="margin-top:8px;gap:8px;flex-wrap:wrap;align-items:center">
           <input id="devRaw" placeholder="tecla…" maxlength="4" style="width:120px;padding:9px;border-radius:8px;border:1px solid #24406a;background:#0a0e14;color:#e6f0ff;font-family:var(--mono)">
           <button class="btn accent" onclick="window.__devRaw && window.__devRaw()">Enviar</button>
           <button class="btn" onclick="var c=document.getElementById('devConsole');if(c)c.textContent=''">Limpiar consola</button>
+          <button class="btn accent" id="devKbdBtn" title="Envía cada tecla de tu teclado directo al robot">⌨ Teclado: ON</button>
+          <span id="devLastKey" style="font-family:var(--mono);font-size:12px;opacity:.75"></span>
         </div>
+        <p style="opacity:.6;font-size:11px;margin-top:6px">Con el <b>teclado directo</b> activo, cada tecla que pulses (<code>m</code>, <code>1</code>-<code>4</code>, <code>7/8/9</code>, <code>+</code> <code>-</code>, <code>q/w/e</code>, <code>p</code> <code>s</code> <code>l</code> <code>c</code>…) va directo al robot. Ideal para calibrar.</p>
       </div>
       <div class="panel"><h3>Normal · Movimiento y pose</h3>${devKeys([
         ["Stand", " "], ["Walk", "1"], ["Gait", "2"], ["Balance", "3"], ["Flash", "4"],
@@ -857,6 +877,8 @@ function render(view) {
   if (_devWS) { try { _devWS.close(); } catch {} _devWS = null; }        // cierra la consola serial al salir
   if (_ikRAF) { cancelAnimationFrame(_ikRAF); _ikRAF = null; }           // detiene la animacion IK al salir
   if (_visionIV) { clearInterval(_visionIV); _visionIV = null; }         // detiene el sondeo de vision al salir
+  if (_devKeyHandler) { document.removeEventListener("keydown", _devKeyHandler); _devKeyHandler = null; }
+  document.onkeydown = null; document.onkeyup = null;                     // limpia captura WASD/dev de la vista anterior
   root.innerHTML = (views[view] || views.dashboard)();
   // montar interacciones segun lo que exista en la vista
   if (root.querySelector("[data-dir]")) mountControlPad(root);
